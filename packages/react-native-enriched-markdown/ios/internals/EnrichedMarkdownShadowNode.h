@@ -60,6 +60,7 @@ private:
   // without this every pass would redo the whole document for each call.
   struct SlotMeasurement {
     bool valid{false};
+    bool slotHeightsChecked{true};
     MeasurementCacheKey key;
     int counter{0};
     CGFloat width{-1};
@@ -71,7 +72,9 @@ private:
   CGSize measureWithSlots(const std::vector<SlotChild> &slots, const LayoutContext &layoutContext,
                           const LayoutConstraints &layoutConstraints, CGFloat maxWidth) const;
   bool slotMeasurementMatches(const std::vector<SlotChild> &slots, const MeasurementCacheKey &key, int counter,
-                              CGFloat width) const;
+                              CGFloat width, const LayoutContext &layoutContext, LayoutDirection layoutDirection) const;
+  bool slotHeightsUnchanged(const std::vector<SlotChild> &slots, const LayoutContext &layoutContext,
+                            LayoutDirection layoutDirection) const;
   std::vector<ENRMBlockSlotPlacement> slotPlacements() const;
 
   int localHeightRecalculationCounter_{0};

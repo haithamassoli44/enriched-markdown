@@ -23,10 +23,11 @@ public:
         slotMeasurement_(static_cast<const MarkdownContainerShadowNode &>(sourceShadowNode).slotMeasurement_) {
     forceHeightRecalculationCounter_ =
         static_cast<const MarkdownContainerShadowNode &>(sourceShadowNode).forceHeightRecalculationCounter_;
-    // A slot child came, went or changed size: measure again with the children's
-    // current sizes (the clone already dirtied Yoga for a children change).
+    // New children, e.g. every frame of an animation inside a slot: the next pass
+    // re-checks the slot heights before reusing the measurement (the clone already
+    // dirtied Yoga for a children change).
     if (fragment.children) {
-      slotMeasurement_.valid = false;
+      slotMeasurement_.slotHeightsChecked = false;
     }
     dirtyLayoutIfNeeded();
   }
@@ -59,6 +60,7 @@ private:
   // and its outputs. Props are immutable, so their identity stands in for a key.
   struct SlotMeasurement {
     bool valid{false};
+    bool slotHeightsChecked{true};
     const void *props{nullptr};
     int counter{0};
     Float width{-1};
@@ -71,7 +73,10 @@ private:
   // Measures through Kotlin with a slot session installed and keeps the frames.
   Size measureWithSlots(const LayoutContext &layoutContext, const LayoutConstraints &layoutConstraints,
                         const std::vector<BlockSlotChild> &children) const;
-  bool slotMeasurementMatches(const std::vector<BlockSlotChild> &children, Float width) const;
+  bool slotMeasurementMatches(const LayoutContext &layoutContext, LayoutDirection layoutDirection,
+                              const std::vector<BlockSlotChild> &children, Float width) const;
+  bool slotHeightsUnchanged(const LayoutContext &layoutContext, LayoutDirection layoutDirection,
+                            const std::vector<BlockSlotChild> &children) const;
   std::vector<BlockSlotPlacement> slotPlacements() const;
 
   int forceHeightRecalculationCounter_{0};

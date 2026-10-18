@@ -25,6 +25,11 @@ struct BlockSlotFrame {
   bool placed{false};
 };
 
+// Height of a slot child laid out at `width` dp, in whole px (rounded up, as the
+// child is laid out).
+float measureBlockSlotHeightPx(const LayoutableShadowNode &node, const LayoutContext &layoutContext,
+                               LayoutDirection layoutDirection, Float width);
+
 /**
  * One measurement pass of the GFM host's slot children. The shadow node installs
  * it (thread-local) around the Java measure call; Kotlin's measurement walk calls

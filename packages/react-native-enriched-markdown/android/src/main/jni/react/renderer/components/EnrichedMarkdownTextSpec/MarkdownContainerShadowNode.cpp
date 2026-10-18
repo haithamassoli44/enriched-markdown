@@ -63,7 +63,9 @@ std::vector<BlockSlotChild> MarkdownContainerShadowNode::slotChildren() const {
   return children;
 }
 
-bool MarkdownContainerShadowNode::slotMeasurementMatches(const std::vector<BlockSlotChild> &children,
+bool MarkdownContainerShadowNode::slotMeasurementMatches(const LayoutContext &layoutContext,
+                                                         LayoutDirection layoutDirection,
+                                                         const std::vector<BlockSlotChild> &children,
                                                          Float width) const {
   const auto &m = slotMeasurement_;
   if (!m.valid || m.props != getProps().get() || m.counter != getStateData().getForceHeightRecalculationCounter() ||
@@ -75,6 +77,30 @@ bool MarkdownContainerShadowNode::slotMeasurementMatches(const std::vector<Block
       return false;
     }
   }
+  return slotHeightsUnchanged(layoutContext, layoutDirection, children);
+}
+
+// Laying a slot child out is cheap; measuring the document through Kotlin is not.
+bool MarkdownContainerShadowNode::slotHeightsUnchanged(const LayoutContext &layoutContext,
+                                                       LayoutDirection layoutDirection,
+                                                       const std::vector<BlockSlotChild> &children) const {
+  auto &m = slotMeasurement_;
+  if (m.slotHeightsChecked) {
+    return true;
+  }
+  const Float scale = layoutContext.pointScaleFactor > 0 ? layoutContext.pointScaleFactor : 1;
+  for (size_t i = 0; i < children.size(); i++) {
+    const auto &frame = m.frames[i];
+    if (!frame.placed) {
+      continue;
+    }
+    const float heightPx = measureBlockSlotHeightPx(*children[i].node, layoutContext, layoutDirection, frame.width);
+    if (std::abs(heightPx - frame.height * scale) >= 0.5) {
+      m.valid = false;
+      return false;
+    }
+  }
+  m.slotHeightsChecked = true;
   return true;
 }
 
@@ -91,7 +117,7 @@ Size MarkdownContainerShadowNode::measureWithSlots(const LayoutContext &layoutCo
                                                    const LayoutConstraints &layoutConstraints,
                                                    const std::vector<BlockSlotChild> &children) const {
   const Float width = layoutConstraints.maximumSize.width;
-  if (slotMeasurementMatches(children, width)) {
+  if (slotMeasurementMatches(layoutContext, layoutConstraints.layoutDirection, children, width)) {
     return slotMeasurement_.size;
   }
 
@@ -102,8 +128,8 @@ Size MarkdownContainerShadowNode::measureWithSlots(const LayoutContext &layoutCo
     size =
         measurementsManager_->measure(getSurfaceId(), getTag(), getConcreteProps(), session.ids(), layoutConstraints);
   }
-  slotMeasurement_ = SlotMeasurement{true, getProps().get(), getStateData().getForceHeightRecalculationCounter(), width,
-                                     size, session.frames()};
+  slotMeasurement_ = SlotMeasurement{true,  true, getProps().get(), getStateData().getForceHeightRecalculationCounter(),
+                                     width, size, session.frames()};
   return size;
 }
 
@@ -142,6 +168,7 @@ void MarkdownContainerShadowNode::layout(LayoutContext layoutContext) {
   for (size_t i = 0; !stale && i < children.size(); i++) {
     stale = slotMeasurement_.frames[i].id != children[i].id;
   }
+  stale = stale || !slotHeightsUnchanged(layoutContext, layoutMetrics.layoutDirection, children);
   if (stale) {
     LayoutConstraints constraints;
     constraints.minimumSize = Size{contentFrame.size.width, 0};

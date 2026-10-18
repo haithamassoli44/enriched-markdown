@@ -38,11 +38,11 @@ EnrichedMarkdownShadowNode::EnrichedMarkdownShadowNode(const ShadowNode &sourceS
     lastExactMeasurementCounter_ = -1;
   }
 
-  // A slot child came, went or changed size: the stacked height must be measured
-  // again, with the children's current sizes.
+  // New children, e.g. every frame of an animation inside a slot: the next pass
+  // re-checks the slot heights before reusing the measurement.
   if (fragment.children) {
     YGNodeMarkDirty(&yogaNode_);
-    slotMeasurement_.valid = false;
+    slotMeasurement_.slotHeightsChecked = false;
   }
   // The streaming modes decide what the walk renders but are not part of the
   // measurement key (the LRU cache is never used while streaming).
@@ -93,9 +93,24 @@ std::vector<EnrichedMarkdownShadowNode::SlotChild> EnrichedMarkdownShadowNode::s
   return slots;
 }
 
+// The height a slot child is laid out at: Yoga-measured at `width`, rounded up
+// to the pixel grid. An undefined host width is +inf; Yoga cannot take an
+// infinite minimum, so the child is measured at its own width then.
+static Float ENRMSlotChildHeight(const LayoutableShadowNode &node, const LayoutContext &layoutContext,
+                                 LayoutDirection layoutDirection, CGFloat width)
+{
+  LayoutConstraints constraints;
+  constraints.minimumSize = Size{std::isfinite(width) ? (Float)width : 0, 0};
+  constraints.maximumSize = Size{(Float)width, std::numeric_limits<Float>::infinity()};
+  constraints.layoutDirection = layoutDirection;
+  Float height = node.measure(layoutContext, constraints).height;
+  return roundToPixel<&ceil>(height, (Float)layoutContext.pointScaleFactor);
+}
+
 bool EnrichedMarkdownShadowNode::slotMeasurementMatches(const std::vector<SlotChild> &slots,
-                                                        const MeasurementCacheKey &key, int counter,
-                                                        CGFloat width) const
+                                                        const MeasurementCacheKey &key, int counter, CGFloat width,
+                                                        const LayoutContext &layoutContext,
+                                                        LayoutDirection layoutDirection) const
 {
   const auto &m = slotMeasurement_;
   if (!m.valid || m.counter != counter || m.width != width || m.frames.size() != slots.size() || !(m.key == key)) {
@@ -106,6 +121,27 @@ bool EnrichedMarkdownShadowNode::slotMeasurementMatches(const std::vector<SlotCh
       return false;
     }
   }
+  return slotHeightsUnchanged(slots, layoutContext, layoutDirection);
+}
+
+// Laying a slot child out is cheap; measuring the document again is not.
+bool EnrichedMarkdownShadowNode::slotHeightsUnchanged(const std::vector<SlotChild> &slots,
+                                                      const LayoutContext &layoutContext,
+                                                      LayoutDirection layoutDirection) const
+{
+  auto &m = slotMeasurement_;
+  if (m.slotHeightsChecked) {
+    return true;
+  }
+  for (size_t i = 0; i < slots.size(); i++) {
+    const auto &frame = m.frames[i];
+    if (frame.placed &&
+        ENRMSlotChildHeight(*slots[i].node, layoutContext, layoutDirection, frame.width) != frame.height) {
+      m.valid = false;
+      return false;
+    }
+  }
+  m.slotHeightsChecked = true;
   return true;
 }
 
@@ -142,7 +178,7 @@ CGSize EnrichedMarkdownShadowNode::measureWithSlots(const std::vector<SlotChild>
 
   MeasurementCacheKey key = buildMeasurementCacheKey(props, maxWidth, fontScale, MarkdownFlavor::GitHub,
                                                      ENRMWrappedCodeBlocksFingerprint(wrappedCodeBlocks));
-  if (slotMeasurementMatches(slots, key, receivedCounter, maxWidth)) {
+  if (slotMeasurementMatches(slots, key, receivedCounter, maxWidth, layoutContext, layoutConstraints.layoutDirection)) {
     return slotMeasurement_.size;
   }
 
@@ -160,17 +196,9 @@ CGSize EnrichedMarkdownShadowNode::measureWithSlots(const std::vector<SlotChild>
                   if (slot.id != id) {
                     continue;
                   }
-                  // An undefined host width reaches here as +inf; Yoga cannot take an
-                  // infinite minimum, so the child is measured at its own width then.
-                  bool finiteWidth = std::isfinite(width);
-                  LayoutConstraints childConstraints;
-                  childConstraints.minimumSize = Size{finiteWidth ? (Float)width : 0, 0};
-                  childConstraints.maximumSize = Size{(Float)width, std::numeric_limits<Float>::infinity()};
-                  childConstraints.layoutDirection = layoutDirection;
-                  Float height = slot.node->measure(layoutContext, childConstraints).height;
-                  // The child is laid out at this height rounded up to the pixel grid
-                  // (layout()); reserve the same so the next segment never overlaps it.
-                  return roundToPixel<&ceil>(height, (Float)pointScaleFactor);
+                  // Reserve the height layout() gives the child, so the next segment
+                  // never overlaps it.
+                  return ENRMSlotChildHeight(*slot.node, layoutContext, layoutDirection, width);
                 }
                 return 0;
               }];
@@ -191,7 +219,8 @@ CGSize EnrichedMarkdownShadowNode::measureWithSlots(const std::vector<SlotChild>
       slotFrames.push_back({slot.id, 0, 0, 0, 0, false});
     }
   }
-  slotMeasurement_ = SlotMeasurement{true, std::move(key), receivedCounter, maxWidth, size, std::move(slotFrames)};
+  slotMeasurement_ =
+      SlotMeasurement{true, true, std::move(key), receivedCounter, maxWidth, size, std::move(slotFrames)};
   return size;
 }
 
