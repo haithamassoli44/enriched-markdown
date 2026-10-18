@@ -12,6 +12,11 @@ bool isBlank(const std::string &text) {
   return true;
 }
 
+// The stream may have stopped partway through `syntax` (`<vi` of `<video`).
+bool isPartial(const std::string &body, const std::string &syntax) {
+  return !body.empty() && body.size() < syntax.size() && syntax.compare(0, body.size(), body) == 0;
+}
+
 // `[label](url)` or `![alt](url)` at the start of body.
 BlockLineState bracketSyntaxState(const std::string &body) {
   return InlineSyntax::state(body, body[0] == '!' ? 1 : 0);
@@ -31,6 +36,8 @@ const MarkdownASTNode *imageMedia(const MarkdownASTNode &node) {
 }
 
 BlockLineState imageLineState(const std::string &body) {
+  if (isPartial(body, "!["))
+    return BlockLineState::Open;
   return body.rfind("![", 0) == 0 ? bracketSyntaxState(body) : BlockLineState::None;
 }
 
@@ -41,6 +48,8 @@ const MarkdownASTNode *videoMedia(const MarkdownASTNode &node) {
 }
 
 BlockLineState videoLineState(const std::string &body) {
+  if (isPartial(body, "<video"))
+    return BlockLineState::Open;
   if (body.rfind("<video", 0) != 0)
     return BlockLineState::None;
   return body.find('>') == std::string::npos ? BlockLineState::Open : BlockLineState::Complete;
@@ -65,6 +74,8 @@ BlockLineState linkLineState(const std::string &body) {
   }
   // An `<autolink>` closes at `>`; a bare URL can always grow by another
   // character, so it stays open until something follows it.
+  if (isPartial(body, "<http"))
+    return BlockLineState::Open;
   if (body.rfind("<http", 0) == 0) {
     size_t close = body.find('>');
     if (close == std::string::npos)

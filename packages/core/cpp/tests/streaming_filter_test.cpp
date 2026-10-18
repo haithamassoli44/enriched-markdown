@@ -51,6 +51,12 @@ int main() {
   expect("Intro\n\n![Hero](https://e", "Intro\n\n", "partial image cut (hidden)", H);
   expect("Intro\n\n<video src=\"https://com", "Intro\n\n", "partial video cut");
   expect("Intro\n\n![Hero", "Intro\n\n", "image without ]( cut");
+  expect("Intro\n\n!", "Intro\n\n", "lone ! may start an image");
+  expect("Intro\n\n<", "Intro\n\n", "lone < may start a video or autolink");
+  expect("Intro\n\n<vid", "Intro\n\n", "partial <video tag cut");
+  expect("Intro\n\n<htt", "Intro\n\n", "partial <http autolink cut");
+  expect("Intro\n\n<3 kyoto", "Intro\n\n<3 kyoto", "text that diverges from block syntax kept");
+  expect("Intro\n\n!important", "Intro\n\n!important", "text starting with ! kept");
 
   // Media: complete syntax shows in progressive, waits for a blank line in hidden.
   expect("Intro\n\n" + img, "Intro\n\n" + img, "complete image kept (progressive)");
