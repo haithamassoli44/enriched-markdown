@@ -346,7 +346,7 @@ React replacements for block media, keyed by kind. A renderer receives the block
 
 Applies to a paragraph whose only content is an image, a paragraph whose only content is a link (a `[label](url)`, an autolink or a bare URL on its own line) and to `<video src="...">` blocks, directly in the document, a blockquote or an admonition that is not itself inside a list. Images and links in lists, tables, headings and running text stay native. A link block that no renderer claims stays a native tappable link, so a `link` renderer can pick by URL and return `null` for the rest.
 
-A renderer runs again when the block list or the renderer function changes, so keep the functions stable with `useCallback`. A renderer that throws, or returns a string or number (which cannot be a child of the native slot), keeps the native block and warns in development.
+A renderer runs once per block and again only when that block or any renderer function changes, so a streaming append does not re-render the blocks already shown. Keep the functions stable with `useCallback`. A renderer that throws, or returns a string or number (which cannot be a child of the native slot), keeps the native block until it runs again and warns in development.
 
 Only applies when `flavor="github"`. Needs the New Architecture.
 

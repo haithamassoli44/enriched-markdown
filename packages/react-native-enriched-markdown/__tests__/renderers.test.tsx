@@ -191,6 +191,56 @@ it('parses once per flag values, not per md4cFlags object identity', () => {
   expect(mockCollect).toHaveBeenCalledTimes(1);
 });
 
+it('renders an unchanged block once while the markdown keeps changing', () => {
+  let figureRenders = 0;
+  function Figure({ altText }: { altText: string }) {
+    figureRenders++;
+    return <View testID={`figure-${altText}`} />;
+  }
+  const image = jest.fn((block: { altText: string }) => (
+    <Figure altText={block.altText} />
+  ));
+  const renderers = { image };
+  const root = render(
+    <EnrichedMarkdownText markdown="a" flavor="github" renderers={renderers} />
+  );
+  act(() =>
+    root.render(
+      <EnrichedMarkdownText
+        markdown="ab"
+        flavor="github"
+        renderers={renderers}
+      />
+    )
+  );
+  expect(image).toHaveBeenCalledTimes(1);
+  expect(figureRenders).toBe(1);
+
+  mockSlots = [{ ...IMAGE_BLOCK, altText: 'Hero, at dawn' }, VIDEO_BLOCK];
+  act(() =>
+    root.render(
+      <EnrichedMarkdownText
+        markdown="abc"
+        flavor="github"
+        renderers={renderers}
+      />
+    )
+  );
+  expect(image).toHaveBeenCalledTimes(2);
+  expect(figureRenders).toBe(2);
+
+  act(() =>
+    root.render(
+      <EnrichedMarkdownText
+        markdown="abc"
+        flavor="github"
+        renderers={{ image: (block) => image(block) }}
+      />
+    )
+  );
+  expect(image).toHaveBeenCalledTimes(3);
+});
+
 it('keeps the native block when a renderer throws or returns text', () => {
   const error = jest.spyOn(console, 'error').mockImplementation(() => {});
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});

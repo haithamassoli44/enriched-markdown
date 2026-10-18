@@ -41,7 +41,7 @@ When your element changes height later (an image loads, text wraps), React Nativ
 
 ## Keeping native rendering for some blocks
 
-Return `null` or `undefined` from a renderer to keep the native image, video or link for that block. One `link` renderer usually fans out by URL: a file card for `.pdf`, a player for YouTube, a preview for everything else, and `null` for links that should stay plain. The decision can depend on anything in the block (`url`, `altText`, `title`, `placement`). Renderers run again when the block list or the renderer function changes, so a decision that depends on other state (say, a set of URLs that failed natively) should be in the renderer's dependencies: pass a new function and the block is placed on the next commit.
+Return `null` or `undefined` from a renderer to keep the native image, video or link for that block. One `link` renderer usually fans out by URL: a file card for `.pdf`, a player for YouTube, a preview for everything else, and `null` for links that should stay plain. The decision can depend on anything in the block (`url`, `altText`, `title`, `placement`). A renderer runs again only when its block or any renderer function changes, so a decision that depends on other state (say, a set of URLs that failed natively) should be in the renderer's dependencies: pass a new function and the block is placed on the next commit.
 
 A renderer that throws, or returns a string or number, keeps the native block and warns in development; wrap text in `<Text>`.
 

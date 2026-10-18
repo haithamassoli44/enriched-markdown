@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { StyleSheet } from 'react-native';
 import EnrichedMarkdownBlockSlotNativeComponent from '../EnrichedMarkdownBlockSlotNativeComponent';
-import { renderBlock } from '../blockRenderers';
+import { useRenderedBlocks } from '../blockRenderers';
 import NativeEnrichedMarkdownParser, {
   type NativeMd4cFlags,
   type NativeStreamingOptions,
@@ -118,36 +118,27 @@ export function useCollectedMarkdown(
 
 /**
  * Runs `renderers` over the collected blocks and wraps every element they return
- * in a slot child keyed by the block id. Memoized on the renderer functions, so
- * keep them stable (`useCallback`) to avoid re-rendering every slot on each
- * parent render.
+ * in a slot child keyed by the block id. Unchanged blocks keep their element, so
+ * keep the renderer functions stable (`useCallback`): a new function renders
+ * every block again.
  */
 export function useBlockSlots(
   blocks: ReadonlyArray<MarkdownBlock>,
   renderers: MarkdownRenderers | undefined
 ): ReactNode[] | null {
-  const image = renderers?.image;
-  const video = renderers?.video;
-  const link = renderers?.link;
+  const rendered = useRenderedBlocks(blocks, renderers);
   return useMemo(() => {
-    if (blocks.length === 0 || (image == null && video == null && link == null))
-      return null;
-    const slots: ReactNode[] = [];
-    for (const block of blocks) {
-      const element = renderBlock({ image, video, link }, block);
-      if (element == null) continue;
-      slots.push(
-        <EnrichedMarkdownBlockSlotNativeComponent
-          key={block.id}
-          slotId={block.id}
-          style={styles.slot}
-        >
-          {element}
-        </EnrichedMarkdownBlockSlotNativeComponent>
-      );
-    }
-    return slots.length > 0 ? slots : null;
-  }, [blocks, image, video, link]);
+    if (rendered.length === 0) return null;
+    return rendered.map(({ block, element }) => (
+      <EnrichedMarkdownBlockSlotNativeComponent
+        key={block.id}
+        slotId={block.id}
+        style={styles.slot}
+      >
+        {element}
+      </EnrichedMarkdownBlockSlotNativeComponent>
+    ));
+  }, [rendered]);
 }
 
 const styles = StyleSheet.create({

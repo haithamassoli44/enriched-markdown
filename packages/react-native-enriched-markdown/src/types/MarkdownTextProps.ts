@@ -645,9 +645,11 @@ export interface EnrichedMarkdownTextProps extends Omit<ViewProps, 'style'> {
    * text stay native. A link block keeps its native tappable link when no
    * renderer claims it.
    *
-   * A renderer runs again when the block list or the renderer function changes,
-   * so keep the functions stable with `useCallback`. A renderer that throws, or
-   * returns a string or number, keeps the native block (with a dev warning).
+   * A renderer runs once per block and again only when that block or any
+   * renderer function changes, so a streaming append does not re-render the
+   * blocks already shown. Keep the functions stable with `useCallback`. A
+   * renderer that throws, or returns a string or number, keeps the native
+   * block (with a dev warning) until it runs again.
    *
    * Only applies when `flavor="github"`. Needs the New Architecture.
    *

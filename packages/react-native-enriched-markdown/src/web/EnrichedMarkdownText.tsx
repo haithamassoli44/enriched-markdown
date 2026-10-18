@@ -20,7 +20,7 @@ import type { ASTNode, RendererCallbacks, RenderCapabilities } from './types';
 import { indexTaskItems, markInlineImages } from './utils';
 import { collectBlocks } from './blockSlots';
 import { useResolvedImageSources } from '../imageSources';
-import { renderBlock } from '../blockRenderers';
+import { useRenderedBlocks } from '../blockRenderers';
 import type {
   MarkdownBlock,
   MarkdownImageOccurrence,
@@ -163,19 +163,19 @@ export const EnrichedMarkdownText = ({
     ]
   );
 
-  const renderImage = renderers?.image;
-  const renderVideo = renderers?.video;
-  const renderLink = renderers?.link;
+  const renderedBlocks = useRenderedBlocks(collected.blocks, renderers);
+  const hasRenderers =
+    renderers?.image != null ||
+    renderers?.video != null ||
+    renderers?.link != null;
   const blockSlots = useMemo(() => {
-    if (!renderImage && !renderVideo && !renderLink) return undefined;
+    if (!hasRenderers) return undefined;
     const slots = new Map<string, ReactNode>();
-    const kinds = { image: renderImage, video: renderVideo, link: renderLink };
-    for (const block of collected.blocks) {
-      const element = renderBlock(kinds, block);
-      if (element != null) slots.set(block.id, element);
+    for (const { block, element } of renderedBlocks) {
+      slots.set(block.id, element);
     }
     return slots;
-  }, [collected, renderImage, renderVideo, renderLink]);
+  }, [hasRenderers, renderedBlocks]);
 
   const imageSources = useImageSources(collected.images, resolveImageSource);
 

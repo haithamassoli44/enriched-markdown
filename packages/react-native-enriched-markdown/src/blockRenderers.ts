@@ -1,4 +1,4 @@
-import { Fragment, isValidElement } from 'react';
+import { Fragment, isValidElement, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import type {
   MarkdownBlock,
@@ -58,4 +58,57 @@ export function renderBlock(
     );
   }
   return null;
+}
+
+export interface RenderedBlock {
+  block: MarkdownBlock;
+  element: ReactNode;
+}
+
+const NO_BLOCKS: ReadonlyArray<RenderedBlock> = [];
+
+function sameBlock(a: MarkdownBlock, b: MarkdownBlock): boolean {
+  const keys = Object.keys(a) as Array<keyof MarkdownBlock>;
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => a[key] === b[key])
+  );
+}
+
+/**
+ * `renderBlock` over the blocks that a renderer replaces, in document order.
+ * An unchanged block keeps its previous element, so React skips its subtree:
+ * while streaming, the markdown changes every tick but the blocks already on
+ * screen do not. New renderer functions render every block again.
+ */
+export function useRenderedBlocks(
+  blocks: ReadonlyArray<MarkdownBlock>,
+  renderers: MarkdownRenderers | undefined
+): ReadonlyArray<RenderedBlock> {
+  const image = renderers?.image;
+  const video = renderers?.video;
+  const link = renderers?.link;
+  const cache = useMemo(
+    () => new Map<string, RenderedBlock>(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one cache per renderer set
+    [image, video, link]
+  );
+  return useMemo(() => {
+    if (image == null && video == null && link == null) return NO_BLOCKS;
+    const rendered: RenderedBlock[] = [];
+    const seen = new Set<string>();
+    for (const block of blocks) {
+      let entry = cache.get(block.id);
+      if (entry == null || !sameBlock(entry.block, block)) {
+        entry = { block, element: renderBlock({ image, video, link }, block) };
+        cache.set(block.id, entry);
+      }
+      seen.add(block.id);
+      if (entry.element != null) rendered.push(entry);
+    }
+    for (const id of cache.keys()) {
+      if (!seen.has(id)) cache.delete(id);
+    }
+    return rendered;
+  }, [blocks, cache, image, video, link]);
 }
