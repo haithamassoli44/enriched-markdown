@@ -2,6 +2,7 @@ package com.swmansion.enriched.markdown.segments
 
 import android.content.Context
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import kotlin.math.ceil
 import kotlin.math.max
@@ -71,8 +72,47 @@ open class ContainerNodeView(
     return changed
   }
 
-  /** Children before the segments (a host's slot layer); the reconciler's indices start after them. */
-  protected open val segmentChildOffset: Int get() = 0
+  /**
+   * The views accessibility reads, in document order: each placeholder gives way
+   * to the slot view standing in for it, and nested containers are flattened,
+   * so a React replacement is read where its block sits.
+   */
+  internal fun addSegmentsForAccessibility(
+    slotViews: Map<String, View>,
+    outChildren: ArrayList<View>,
+  ) {
+    segmentViews.forEach { view ->
+      when {
+        view is BlockSlotSegmentView -> {
+          slotViews[view.slotId]?.let { addForAccessibility(it, outChildren) }
+        }
+
+        view is ContainerNodeView && !view.isImportantForAccessibility -> {
+          view.addSegmentsForAccessibility(slotViews, outChildren)
+        }
+
+        else -> {
+          addForAccessibility(view, outChildren)
+        }
+      }
+    }
+  }
+
+  // An important view is read itself, an unimportant group through its
+  // children. Leaves are kept either way: the framework's own filter
+  // (includeForAccessibility) is hidden, and services that ask for unimportant
+  // views, as UI test tools do, would lose them.
+  private fun addForAccessibility(
+    view: View,
+    outChildren: ArrayList<View>,
+  ) {
+    if (view.visibility != VISIBLE) return
+    if (view.isImportantForAccessibility || view !is ViewGroup) {
+      outChildren.add(view)
+    } else {
+      view.addChildrenForAccessibility(outChildren)
+    }
+  }
 
   /**
    * Reconciles the current child views against renderedSegments, attaching and
@@ -105,11 +145,11 @@ open class ContainerNodeView(
     // getChildAt out of step with segmentViews. detach/attach splices the child array
     // without a detach-from-window pass, so a moved child keeps its selection, focus
     // and scroll state; each step fixes one index without disturbing the ones before it.
+    // Segments take the first indices, so a host's slot layer stays the last child.
     result.views.forEachIndexed { index, view ->
-      val childIndex = index + segmentChildOffset
-      if (getChildAt(childIndex) !== view) {
+      if (getChildAt(index) !== view) {
         detachViewFromParent(view)
-        attachViewToParent(view, childIndex, view.layoutParams)
+        attachViewToParent(view, index, view.layoutParams)
       }
     }
 

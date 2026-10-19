@@ -65,6 +65,12 @@ public:
   // One frame per child, in child order; unplaced children carry zeros.
   std::vector<BlockSlotFrame> frames() const;
 
+  // Forgets every placement: a walk that failed partway falls back to a
+  // measurement without slots, so no child may claim a block.
+  void discard() {
+    placed_.clear();
+  }
+
 private:
   std::vector<BlockSlotChild> children_;
   std::vector<std::string> ids_;

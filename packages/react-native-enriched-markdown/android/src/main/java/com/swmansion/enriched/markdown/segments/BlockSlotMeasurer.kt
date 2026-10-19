@@ -11,4 +11,7 @@ fun interface BlockSlotMeasurer {
     yPx: Float,
     widthPx: Float,
   ): Float
+
+  /** Forgets every slot measured so far: the walk failed and falls back to native blocks. */
+  fun discard() = Unit
 }

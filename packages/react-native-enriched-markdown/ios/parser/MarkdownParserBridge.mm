@@ -1,22 +1,24 @@
-#include "BlockSlots.hpp"
+#include "AstOverlay.hpp"
+#include "DocumentStore.hpp"
 #import "ENRMLinkRegexConfig.h"
 #import "ENRMMarkdownParser.h"
-#include "MD4CParser.hpp"
+#import "ENRMUTF8.h"
 #import "MarkdownASTNode.h"
 #include "MarkdownASTNode.hpp"
 #include "TextLinkRecognizer.hpp"
-#import <React/RCTLog.h>
+#include <memory>
+#include <mutex>
+#include <unordered_set>
+#include <vector>
 
-// Convert C++ AST node to Objective-C AST node
-static MarkdownASTNode *convertCppASTToObjC(std::shared_ptr<Markdown::MarkdownASTNode> cppNode)
+// Copies the shared C++ tree into Objective-C nodes, with the overlay's slot ids,
+// image ids and recognized links applied on the way; the C++ tree is not touched.
+static MarkdownASTNode *convertCppASTToObjC(const Markdown::MarkdownASTNode &cppNode,
+                                            const Markdown::AstOverlay &overlay)
 {
-  if (!cppNode) {
-    return [[MarkdownASTNode alloc] initWithType:MarkdownNodeTypeDocument];
-  }
-
   // Convert C++ NodeType enum to Objective-C MarkdownNodeType
   MarkdownNodeType objcType;
-  switch (cppNode->type) {
+  switch (cppNode.type) {
     case Markdown::NodeType::Document:
       objcType = MarkdownNodeTypeDocument;
       break;
@@ -123,30 +125,19 @@ static MarkdownASTNode *convertCppASTToObjC(std::shared_ptr<Markdown::MarkdownAS
 
   MarkdownASTNode *objcNode = [[MarkdownASTNode alloc] initWithType:objcType];
 
-  // Convert content
-  if (!cppNode->content.empty()) {
-    objcNode.content = [NSString stringWithUTF8String:cppNode->content.c_str()];
+  if (!cppNode.content.empty()) {
+    objcNode.content = ENRMStringFromUTF8(cppNode.content);
   }
-
-  // Convert attributes
-  for (const auto &[key, value] : cppNode->attributes) {
-    NSString *objcKey = [NSString stringWithUTF8String:key.c_str()];
-    NSString *objcValue = [NSString stringWithUTF8String:value.c_str()];
-    [objcNode setAttribute:objcKey value:objcValue];
+  for (const auto &[key, value] : cppNode.attributes) {
+    [objcNode setAttribute:ENRMStringFromUTF8(key) value:ENRMStringFromUTF8(value)];
   }
-
-  // Convert children recursively
-  for (const auto &child : cppNode->children) {
-    MarkdownASTNode *objcChild = convertCppASTToObjC(child);
-    [objcNode addChild:objcChild];
-  }
-
+  overlay.forEachAttribute(cppNode, [&](const char *key, const std::string &value) {
+    [objcNode setAttribute:@(key) value:ENRMStringFromUTF8(value)];
+  });
+  overlay.forEachChild(cppNode, [&](const std::shared_ptr<Markdown::MarkdownASTNode> &child) {
+    [objcNode addChild:convertCppASTToObjC(*child, overlay)];
+  });
   return objcNode;
-}
-
-static NSString *ENRMStringFromUTF8(std::string_view utf8)
-{
-  return [[NSString alloc] initWithBytes:utf8.data() length:utf8.size() encoding:NSUTF8StringEncoding] ?: @"";
 }
 
 // Host matchers for the core recognizer: NSRanges are UTF-16 units, which is what the core expects.
@@ -206,26 +197,8 @@ MarkdownASTNode *parseMarkdownWithCppParser(NSString *markdown, ENRMMd4cFlags *f
   return parseMarkdownWithCppParser(markdown, flags, isGFM, textRegex, codeRegex, nil, NO);
 }
 
-// Parses with the C++ parser, runs text link recognition and the block slot /
-// image occurrence annotation in the core, and converts to the Objective-C AST.
-static MarkdownASTNode *parseMarkdownUncached(NSString *markdown, ENRMMd4cFlags *flags, BOOL isGFM,
-                                              ENRMLinkRegexConfig *textRegex, ENRMLinkRegexConfig *codeRegex,
-                                              NSSet<NSString *> *activeBlockSlotIds, BOOL annotateImages)
+static Markdown::Md4cFlags ENRMCoreFlags(ENRMMd4cFlags *flags)
 {
-  if (markdown.length == 0) {
-    return [[MarkdownASTNode alloc] initWithType:MarkdownNodeTypeDocument];
-  }
-
-  // Convert NSString to std::string
-  const char *utf8String = [markdown UTF8String];
-  if (!utf8String) {
-    RCTLogError(@"MarkdownParserBridge: Failed to convert markdown to UTF-8");
-    return [[MarkdownASTNode alloc] initWithType:MarkdownNodeTypeDocument];
-  }
-
-  std::string cppMarkdown(utf8String);
-
-  // Convert Objective-C flags to C++ flags
   Markdown::Md4cFlags cppFlags;
   cppFlags.underline = flags.underline;
   cppFlags.latexMath = flags.latexMath;
@@ -235,90 +208,91 @@ static MarkdownASTNode *parseMarkdownUncached(NSString *markdown, ENRMMd4cFlags 
   cppFlags.hardSoftBreaks = flags.hardSoftBreaks;
   cppFlags.preserveBlankLines = flags.preserveBlankLines;
   cppFlags.admonitions = flags.admonitions;
-
-  Markdown::MD4CParser parser;
-  auto cppAST = parser.parse(cppMarkdown, cppFlags, isGFM);
-  // Slots and image sources are GFM features (the CommonMark host lays nothing
-  // out for them); one walk stamps both. It runs before text-link recognition,
-  // which the JS collector never runs, so both count the same slots.
-  if (cppAST && isGFM && (activeBlockSlotIds.count > 0 || annotateImages)) {
-    std::unordered_set<std::string> ids;
-    for (NSString *slotId in activeBlockSlotIds) {
-      ids.insert(std::string(slotId.UTF8String ?: ""));
-    }
-    Markdown::annotate(*cppAST, ids, annotateImages);
-  }
-  if (cppAST && (textRegex || codeRegex)) {
-    Markdown::recognizeTextLinks(*cppAST, ENRMTextLinkMatchers(textRegex, codeRegex));
-  }
-
-  // Convert C++ AST to Objective-C AST
-  return convertCppASTToObjC(cppAST);
+  return cppFlags;
 }
 
-// The view's render, the view-free measurement and a nested quote's static
-// measure parse the same document with the same options, one after the other and
-// on different threads; the last few results are kept so a streaming tick parses
-// once. Nothing mutates an AST after parsing, so sharing one is safe.
-static NSString *ENRMParseCacheKey(NSString *markdown, ENRMMd4cFlags *flags, BOOL isGFM, ENRMLinkRegexConfig *textRegex,
-                                   ENRMLinkRegexConfig *codeRegex, NSSet<NSString *> *activeBlockSlotIds,
-                                   BOOL annotateImages)
+static BOOL ENRMSameRegex(ENRMLinkRegexConfig *a, ENRMLinkRegexConfig *b)
 {
-  NSMutableString *key = [NSMutableString stringWithCapacity:markdown.length + 128];
-  [key appendFormat:@"%d%d%d%d%d%d%d%d|%d|", flags.underline, flags.latexMath, flags.superscript, flags.subscript,
-                    flags.highlight, flags.hardSoftBreaks, flags.preserveBlankLines, flags.admonitions, isGFM];
-  for (ENRMLinkRegexConfig *regex in @[ textRegex ?: (id)NSNull.null, codeRegex ?: (id)NSNull.null ]) {
-    if ([regex isKindOfClass:[ENRMLinkRegexConfig class]]) {
-      [key appendFormat:@"%d%d%d%d%@", regex.caseInsensitive, regex.dotAll, regex.isDisabled, regex.isDefault,
-                        regex.pattern];
-    }
-    [key appendString:@"|"];
-  }
-  for (NSString *slotId in [activeBlockSlotIds.allObjects sortedArrayUsingSelector:@selector(compare:)]) {
-    [key appendString:slotId];
-    [key appendString:@","];
-  }
-  [key appendFormat:@"|%d|", annotateImages];
-  [key appendString:markdown];
-  return key;
+  return a == b || [a isEqualToConfig:b];
 }
+
+// nil and an empty set both mean no slots.
+static BOOL ENRMSameSlotIds(NSSet<NSString *> *a, NSSet<NSString *> *b)
+{
+  return a.count == b.count && (a.count == 0 || [a isEqualToSet:b]);
+}
+
+namespace {
+
+// The render, the view-free measurement and a nested quote's static measure
+// convert the same shared document one after another on different threads; the
+// last few conversions are kept so a streaming tick converts once.
+struct ENRMConversion {
+  std::shared_ptr<const Markdown::ParsedDocument> document;
+  ENRMLinkRegexConfig *textRegex;
+  ENRMLinkRegexConfig *codeRegex;
+  NSSet<NSString *> *slotIds;
+  BOOL annotateImages;
+  MarkdownASTNode *node;
+
+  bool matches(const ENRMConversion &other) const
+  {
+    return document == other.document && ENRMSameRegex(textRegex, other.textRegex) &&
+           ENRMSameRegex(codeRegex, other.codeRegex) && ENRMSameSlotIds(slotIds, other.slotIds) &&
+           annotateImages == other.annotateImages;
+  }
+};
+
+} // namespace
 
 MarkdownASTNode *parseMarkdownWithCppParser(NSString *markdown, ENRMMd4cFlags *flags, BOOL isGFM,
                                             ENRMLinkRegexConfig *textRegex, ENRMLinkRegexConfig *codeRegex,
                                             NSSet<NSString *> *activeBlockSlotIds, BOOL annotateImages)
 {
-  static NSLock *lock;
-  static NSMutableArray<NSString *> *keys;
-  static NSMutableArray<MarkdownASTNode *> *nodes;
-  static dispatch_once_t once;
-  dispatch_once(&once, ^{
-    lock = [[NSLock alloc] init];
-    keys = [NSMutableArray array];
-    nodes = [NSMutableArray array];
-  });
-  // Render, measure and a nested quote's static measure of one document.
-  static const NSUInteger kRecentParses = 3;
+  static std::mutex mutex;
+  static std::vector<ENRMConversion> recent;
+  static const size_t kRecentConversions = 3;
 
-  NSString *key = ENRMParseCacheKey(markdown, flags, isGFM, textRegex, codeRegex, activeBlockSlotIds, annotateImages);
-  [lock lock];
-  NSUInteger index = [keys indexOfObject:key];
-  MarkdownASTNode *cached = index == NSNotFound ? nil : nodes[index];
-  [lock unlock];
-  if (cached) {
-    return cached;
+  // Slots and image sources are GitHub-flavor features (the CommonMark host lays
+  // nothing out for them).
+  ENRMConversion request{Markdown::DocumentStore::shared().parse(ENRMUTF8String(markdown), ENRMCoreFlags(flags), isGFM),
+                         textRegex,
+                         codeRegex,
+                         isGFM ? activeBlockSlotIds : nil,
+                         isGFM && annotateImages,
+                         nil};
+  if (!request.document->ast) {
+    return [[MarkdownASTNode alloc] initWithType:MarkdownNodeTypeDocument];
   }
-
-  MarkdownASTNode *ast =
-      parseMarkdownUncached(markdown, flags, isGFM, textRegex, codeRegex, activeBlockSlotIds, annotateImages);
-  if (ast) {
-    [lock lock];
-    [keys insertObject:key atIndex:0];
-    [nodes insertObject:ast atIndex:0];
-    while (keys.count > kRecentParses) {
-      [keys removeLastObject];
-      [nodes removeLastObject];
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    for (const auto &entry : recent) {
+      if (entry.matches(request)) {
+        return entry.node;
+      }
     }
-    [lock unlock];
   }
-  return ast;
+
+  std::unordered_set<std::string> ids;
+  for (NSString *slotId in request.slotIds) {
+    ids.insert(ENRMUTF8String(slotId));
+  }
+  Markdown::TextLinkReplacements links;
+  if (textRegex || codeRegex) {
+    links = Markdown::recognizeTextLinks(*request.document->ast, ENRMTextLinkMatchers(textRegex, codeRegex));
+  }
+  Markdown::AstOverlay overlay(*request.document, std::move(ids), request.annotateImages, std::move(links));
+  request.node = convertCppASTToObjC(*request.document->ast, overlay);
+
+  std::lock_guard<std::mutex> lock(mutex);
+  for (const auto &entry : recent) {
+    if (entry.matches(request)) {
+      return entry.node; // another thread converted it meanwhile
+    }
+  }
+  recent.insert(recent.begin(), request);
+  if (recent.size() > kRecentConversions) {
+    recent.pop_back();
+  }
+  return request.node;
 }

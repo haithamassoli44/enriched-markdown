@@ -16,7 +16,7 @@ namespace facebook::react {
 
 using EnrichedMarkdownParserBlockSlot =
     NativeEnrichedMarkdownParserNativeBlockSlot<std::string, std::string, std::string, std::string, std::string,
-                                                std::string>;
+                                                std::string, std::string>;
 template <>
 struct Bridging<EnrichedMarkdownParserBlockSlot>
     : NativeEnrichedMarkdownParserNativeBlockSlotBridging<EnrichedMarkdownParserBlockSlot> {};
@@ -48,10 +48,9 @@ struct Bridging<EnrichedMarkdownParserCollectedBlocks>
 
 /**
  * Pure C++ TurboModule exposing the core's block collector to JS synchronously.
- * It runs the same streaming filter and parses with the same md4c core the
- * native hosts render with, so the ids it returns are the ids the hosts stamp
- * on their AST (see BlockSlots.hpp). Shared by iOS (EnrichedMarkdownParserProvider)
- * and Android (parser-module/CMakeLists.txt).
+ * It filters and parses through the DocumentStore the native hosts use, so the
+ * tick's measurement and render reuse its document and see the same ids. Shared
+ * by iOS (EnrichedMarkdownParserProvider) and Android (parser-module/CMakeLists.txt).
  */
 class EnrichedMarkdownParser : public NativeEnrichedMarkdownParserCxxSpec<EnrichedMarkdownParser> {
 public:

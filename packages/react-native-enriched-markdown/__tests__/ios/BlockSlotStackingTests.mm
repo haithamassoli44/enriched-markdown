@@ -1,3 +1,4 @@
+#include "../../../core/cpp/parser/DocumentStore.hpp"
 #import "../../ios/internals/ENRMBlockSlotMeasurer.h"
 #import "../../ios/parser/ENRMMarkdownParser.h"
 #import "../../ios/parser/MarkdownASTNode.h"
@@ -14,6 +15,13 @@
 @end
 
 @implementation ENRMBlockSlotStackingTests
+
+// The id the JS collector hands out for the first block of `markdown`.
+static NSString *ENRMFirstSlotId(NSString *markdown)
+{
+  auto document = Markdown::DocumentStore::shared().parse(std::string(markdown.UTF8String), {}, true);
+  return @(document->blocks.slots.front().id.c_str());
+}
 
 - (NSArray<ENRMRenderedSegment *> *)segmentsFor:(NSString *)markdown
                                          config:(StyleConfig *)config
@@ -33,8 +41,7 @@
 {
   StyleConfig *config = [[StyleConfig alloc] init];
   NSString *markdown = @"Intro paragraph.\n\n![Hero](https://e.com/a.png)\n\nAfter.";
-  // The id the collector would hand JS: "image:<fnv1a64(url)>:0".
-  NSString *slotId = @"image:e8d05e0390168677:0";
+  NSString *slotId = ENRMFirstSlotId(markdown);
 
   NSArray *segments = [self segmentsFor:markdown config:config slotIds:[NSSet setWithObject:slotId]];
   NSUInteger slotSegments = 0;
@@ -90,7 +97,7 @@
 - (void)testLinkSlotTakesParagraphMargins
 {
   StyleConfig *config = [[StyleConfig alloc] init];
-  NSString *slotId = @"link:652144a43afb79db:0";
+  NSString *slotId = ENRMFirstSlotId(@"[Q3 report.pdf](https://e.com/q3.pdf)\n");
   NSArray *segments = [self segmentsFor:@"[Q3 report.pdf](https://e.com/q3.pdf)\n"
                                  config:config
                                 slotIds:[NSSet setWithObject:slotId]];

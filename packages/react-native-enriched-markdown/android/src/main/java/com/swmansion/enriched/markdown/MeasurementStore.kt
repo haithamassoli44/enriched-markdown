@@ -123,7 +123,20 @@ object MeasurementStore {
     width: Float,
   ): Float
 
-  private val slotMeasurer = BlockSlotMeasurer { slotId, x, y, width -> nativeMeasureBlockSlot(slotId, x, y, width) }
+  @JvmStatic
+  private external fun nativeDiscardBlockSlotFrames()
+
+  private val slotMeasurer =
+    object : BlockSlotMeasurer {
+      override fun measure(
+        slotId: String,
+        xPx: Float,
+        yPx: Float,
+        widthPx: Float,
+      ) = nativeMeasureBlockSlot(slotId, xPx, yPx, widthPx)
+
+      override fun discard() = nativeDiscardBlockSlotFrames()
+    }
 
   @Volatile
   private var lastKnownFontScale: Float = 1.0f
@@ -617,7 +630,9 @@ object MeasurementStore {
       }
       result
     } catch (e: Exception) {
-      Log.w(TAG, "Split measurement failed, falling back", e)
+      // The fallback measures without slots, so every block renders natively.
+      slotMeasurer.discard()
+      Log.w(TAG, "Split measurement failed, falling back without block renderers", e)
       measureAndCache(context, id, width, props, allowFontScaling, fontScale, maxFontSizeMultiplier)
     }
   }

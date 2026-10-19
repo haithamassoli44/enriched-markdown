@@ -7,9 +7,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.View
+import androidx.core.view.children
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReadableMap
-import com.facebook.react.uimanager.PixelUtil
 import com.facebook.react.uimanager.StateWrapper
 import com.swmansion.enriched.markdown.accessibility.AccessibilityLabels
 import com.swmansion.enriched.markdown.math.LatexErrorReporter
@@ -28,6 +28,8 @@ import com.swmansion.enriched.markdown.segments.SegmentViewFactory
 import com.swmansion.enriched.markdown.segments.TableContainerView
 import com.swmansion.enriched.markdown.segments.splitASTIntoSegments
 import com.swmansion.enriched.markdown.slots.BlockSlotLayer
+import com.swmansion.enriched.markdown.slots.EnrichedMarkdownBlockSlotView
+import com.swmansion.enriched.markdown.slots.SlotPlacements
 import com.swmansion.enriched.markdown.spoiler.SpoilerOverlay
 import com.swmansion.enriched.markdown.styles.ImageSourceOverride
 import com.swmansion.enriched.markdown.styles.LinkPillContent
@@ -47,7 +49,6 @@ import com.swmansion.enriched.markdown.utils.text.view.emitImagePressEvent
 import java.util.EnumSet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import kotlin.math.ceil
 
 class EnrichedMarkdown(
   context: Context,
@@ -105,7 +106,7 @@ class EnrichedMarkdown(
   // segment reconciler's child indices stay its own. Fabric positions them.
   val slotLayer = BlockSlotLayer(context)
 
-  // From the shadow node's state: every slot child's id, and the heights of the placed ones (px).
+  // From the shadow node's state: the placed slot children's ids and heights (px).
   private var activeBlockSlotIds: Set<String> = emptySet()
   private var blockSlotHeights: Map<String, Int> = emptyMap()
   private var selectable: Boolean = true
@@ -172,18 +173,21 @@ class EnrichedMarkdown(
 
   init {
     segmentViewFactory = RootFactory()
-    // The layer stays child 0 (the reconciler's segment indices start after it)
-    // and is drawn, and hit-tested, last via the drawing order below.
+    // The layer stays the last child (applySegments places segments in front of
+    // it), so it draws above them and touch lookup reaches the slots first.
     addView(slotLayer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-    isChildrenDrawingOrderEnabled = true
   }
 
-  override val segmentChildOffset: Int get() = 1
-
-  override fun getChildDrawingOrder(
-    childCount: Int,
-    drawingPosition: Int,
-  ): Int = if (drawingPosition == childCount - 1) 0 else drawingPosition + 1
+  // The slot layer spans the whole host, so the default order, by position,
+  // would read every React replacement before the text above it.
+  override fun addChildrenForAccessibility(outChildren: ArrayList<View>) {
+    if (slotLayer.childCount == 0) {
+      super.addChildrenForAccessibility(outChildren)
+      return
+    }
+    val slotViews = slotLayer.children.filterIsInstance<EnrichedMarkdownBlockSlotView>().associateBy { it.slotId }
+    addSegmentsForAccessibility(slotViews, outChildren)
+  }
 
   // isTaskToggle marks a checkbox flip rendered locally ahead of the prop; it
   // moves no code block, so it skips the wrap state's reset rule.
@@ -236,25 +240,16 @@ class EnrichedMarkdown(
    * heights only restack the segments (Yoga already measured with them).
    */
   fun applySlotPlacements(state: ReadableMap?) {
-    val placements = state?.takeIf { it.hasKey("slotPlacements") }?.getArray("slotPlacements")
-    val ids = LinkedHashSet<String>()
-    val heights = HashMap<String, Int>()
-    for (index in 0 until (placements?.size() ?: 0)) {
-      val placement = placements?.getMap(index) ?: continue
-      val id = placement.getString("id") ?: continue
-      ids += id
-      if (placement.hasKey("placed") && placement.getBoolean("placed")) {
-        // The child is laid out at this height rounded up to the pixel grid.
-        heights[id] = ceil(PixelUtil.toPixelFromDIP(placement.getDouble("height").toFloat())).toInt()
-      }
-    }
-    blockSlotHeights = heights
-    if (applyBlockSlotHeights(heights) && width > 0) {
+    val placements = SlotPlacements.from(state)
+    blockSlotHeights = placements.heightsPx
+    if (applyBlockSlotHeights(placements.heightsPx) && width > 0) {
       layoutSegments()
       requestLayout()
     }
-    if (activeBlockSlotIds != ids) {
-      activeBlockSlotIds = ids
+    // Only placed children stand in for their blocks: an unplaced one (its block
+    // is gone, or measurement fell back) leaves the native block in place.
+    if (activeBlockSlotIds != placements.placed) {
+      activeBlockSlotIds = placements.placed
       // Rendered now, in this commit, not in commitProps nor one executor hop later.
       renderPending = false
       renderSynchronously()

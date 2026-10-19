@@ -35,6 +35,7 @@
 #import "ENRMSpoilerCapable.h"
 #import "ENRMSpoilerOverlayView.h"
 #import "ENRMSpoilerTapUtils.h"
+#import "ENRMUTF8.h"
 #import "EnrichedMarkdownBlockSlot.h"
 #import "EnrichedMarkdownInternalText.h"
 #import "FontScaleObserver.h"
@@ -812,14 +813,23 @@ static char kENRMSegmentFadeAnimatorKey;
   [self bindBlockSlotViews];
 }
 
+// Where segments live: beside the slot layer. RCTViewComponentView moves its
+// subviews into a container view for some styles (overflow with a shadow,
+// filters), and the slot layer moves with them.
+- (RCTUIView *)segmentContainer
+{
+  return (RCTUIView *)_slotLayer.superview ?: self;
+}
+
 - (void)bringSlotLayerToFront
 {
+  RCTUIView *container = [self segmentContainer];
 #if !TARGET_OS_OSX
-  [self bringSubviewToFront:_slotLayer];
+  [container bringSubviewToFront:_slotLayer];
 #else
-  if (self.subviews.lastObject != _slotLayer) {
+  if (container.subviews.lastObject != _slotLayer) {
     [_slotLayer removeFromSuperviewWithoutNeedingDisplay];
-    [self addSubview:_slotLayer];
+    [container addSubview:_slotLayer];
   }
 #endif
 }
@@ -1076,7 +1086,7 @@ static char kENRMSegmentFadeAnimatorKey;
     RCTUIView *view = [_segmentViewRegistry createViewForSegment:segment];
     [_segmentViews addObject:view];
     [_segmentSignatures addObject:@(segment.signature)];
-    [self addSubview:view];
+    [[self segmentContainer] addSubview:view];
   }
   [self bringSlotLayerToFront];
   ENRMApplyBlockSlotHeights(_segmentViews, _blockSlotHeights ?: @{});
@@ -1113,7 +1123,7 @@ static char kENRMSegmentFadeAnimatorKey;
       updateView:^(RCTUIView *view, ENRMRenderedSegment *segment) {
         [self->_segmentViewRegistry updateView:view withSegment:segment];
       }
-      attachView:^(RCTUIView *view) { [self addSubview:view]; }
+      attachView:^(RCTUIView *view) { [[self segmentContainer] addSubview:view]; }
       removeView:^(RCTUIView *view) { [view removeFromSuperview]; }
       matchesKind:^BOOL(RCTUIView *view, ENRMRenderedSegment *segment) {
         return [self->_segmentViewRegistry view:view matchesSegment:segment];
@@ -1598,7 +1608,7 @@ static char kENRMSegmentFadeAnimatorKey;
         computeStyleFingerprint(newViewProps.markdownStyle) ^ std::hash<bool>{}(newViewProps.allowTrailingMargin);
     // Rendered in finalizeUpdates, once per transaction (see
     // applyBlockSlotPlacementsFromState).
-    _pendingRenderMarkdown = [[NSString alloc] initWithUTF8String:newViewProps.markdown.c_str()];
+    _pendingRenderMarkdown = ENRMStringFromUTF8(newViewProps.markdown);
     _dirtyFlags &= ~ENRMDirtyRender;
   }
 
@@ -1652,6 +1662,7 @@ static char kENRMSegmentFadeAnimatorKey;
   _activeBlockSlotIds = nil;
   _blockSlotHeights = nil;
   _pendingRenderMarkdown = nil;
+  _pendingRenderSynchronously = NO;
   _pendingSlotHeightCheck = NO;
   _md4cFlags = [EnrichedMarkdown flagsFromProps:resetProps->md4cFlags];
   _isGFM = resetProps->isGFM;

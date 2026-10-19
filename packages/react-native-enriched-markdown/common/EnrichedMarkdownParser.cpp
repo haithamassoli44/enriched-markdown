@@ -1,7 +1,5 @@
 #include "EnrichedMarkdownParser.h"
-#include "BlockSlots.hpp"
-#include "MD4CParser.hpp"
-#include "StreamingFilter.hpp"
+#include "DocumentStore.hpp"
 
 namespace facebook::react {
 
@@ -10,7 +8,15 @@ namespace {
 Markdown::Md4cFlags toCoreFlags(const EnrichedMarkdownParserMd4cFlags &flags) {
   Markdown::Md4cFlags core;
   core.underline = flags.underline;
+  // Android builds can leave math out (CMakeLists.txt); the host parses without it then.
+  // TODO: one rule for both platforms: parse without math whenever it is compiled
+  // out, keyed on ENRICHED_MARKDOWN_MATH (iOS already defines it) in collect and
+  // both hosts. iOS parses math today even when RaTeX is out and drops the `$`.
+#if ENRICHED_MARKDOWN_MATH_DISABLED
+  core.latexMath = false;
+#else
   core.latexMath = flags.latexMath;
+#endif
   core.superscript = flags.superscript;
   core.subscript = flags.subscript;
   core.highlight = flags.highlight;
@@ -28,31 +34,23 @@ EnrichedMarkdownParser::EnrichedMarkdownParser(std::shared_ptr<CallInvoker> jsIn
 EnrichedMarkdownParserCollectedBlocks
 EnrichedMarkdownParser::collect(jsi::Runtime &, std::string markdown, EnrichedMarkdownParserMd4cFlags flags, bool isGFM,
                                 EnrichedMarkdownParserStreamingOptions streaming) {
-  EnrichedMarkdownParserCollectedBlocks result;
+  auto &store = Markdown::DocumentStore::shared();
   if (streaming.enabled) {
     Markdown::StreamingFilterOptions options;
     options.tableMode = Markdown::streamingBlockModeFromName(streaming.tableMode);
     options.codeBlockMode = Markdown::streamingBlockModeFromName(streaming.codeBlockMode);
     options.mediaMode = Markdown::streamingBlockModeFromName(streaming.mediaMode);
-    markdown = Markdown::renderableMarkdownForStreaming(markdown, options).markdown;
+    markdown = store.filter(markdown, options).markdown;
   }
-  if (markdown.empty()) {
-    return result;
+  EnrichedMarkdownParserCollectedBlocks result;
+  auto document = store.parse(markdown, toCoreFlags(flags), isGFM);
+  for (const auto &slot : document->blocks.slots) {
+    result.slots.push_back({slot.id, Markdown::blockSlotKindName(slot.kind), slot.url, slot.altText, slot.title,
+                            Markdown::blockSlotPlacementName(slot.placement), slot.occurrenceId});
   }
-  Markdown::MD4CParser parser;
-  auto ast = parser.parse(markdown, toCoreFlags(flags), isGFM);
-  if (!ast) {
-    return result;
-  }
-  auto collected = Markdown::collect(*ast);
-  for (auto &slot : collected.slots) {
-    result.slots.push_back({std::move(slot.id), Markdown::blockSlotKindName(slot.kind), std::move(slot.url),
-                            std::move(slot.altText), std::move(slot.title),
-                            Markdown::blockSlotPlacementName(slot.placement)});
-  }
-  for (auto &image : collected.images) {
-    result.images.push_back({std::move(image.id), std::move(image.url), std::move(image.altText),
-                             std::move(image.title), Markdown::imagePlacementName(image.placement)});
+  for (const auto &image : document->blocks.images) {
+    result.images.push_back(
+        {image.id, image.url, image.altText, image.title, Markdown::imagePlacementName(image.placement)});
   }
   return result;
 }

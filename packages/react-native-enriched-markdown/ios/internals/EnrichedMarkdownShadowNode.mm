@@ -166,6 +166,12 @@ CGSize EnrichedMarkdownShadowNode::measureWithSlots(const std::vector<SlotChild>
   const auto &props = getConcreteProps();
   const int receivedCounter = getStateData().getHeightRecalculationCounter();
   CGFloat pointScaleFactor = layoutContext.pointScaleFactor;
+  // measureContent passes Yoga's width, layout() a frame whose two edges Yoga
+  // rounded separately: within a pixel they are one layout, so the memo keeps its
+  // width (Android's sameWidth).
+  if (slotMeasurement_.valid && std::abs(maxWidth - slotMeasurement_.width) < 1 / pointScaleFactor) {
+    maxWidth = slotMeasurement_.width;
+  }
   NSWritingDirection resolvedLayoutDirection = layoutConstraints.layoutDirection == LayoutDirection::RightToLeft
                                                    ? NSWritingDirectionRightToLeft
                                                    : NSWritingDirectionLeftToRight;
@@ -304,8 +310,10 @@ void EnrichedMarkdownShadowNode::layout(LayoutContext layoutContext)
       continue;
     }
 
-    // The walk already rounded the height up to the pixel grid.
-    auto slotSize = roundToPixel<&ceil>(Size{frame.width, frame.height}, layoutMetrics.pointScaleFactor);
+    // The height is already on the pixel grid (rounding it up again adds a pixel
+    // of float error); the width rounds up so the child keeps its measured width.
+    auto slotSize = Size{roundToPixel<&ceil>(frame.width, layoutMetrics.pointScaleFactor),
+                         roundToPixel<&round>(frame.height, layoutMetrics.pointScaleFactor)};
     auto slotOrigin = roundToPixel<&round>(Point{contentFrame.origin.x + frame.x, contentFrame.origin.y + frame.y},
                                            layoutMetrics.pointScaleFactor);
     auto slotConstraints = LayoutConstraints{slotSize, slotSize, layoutMetrics.layoutDirection};

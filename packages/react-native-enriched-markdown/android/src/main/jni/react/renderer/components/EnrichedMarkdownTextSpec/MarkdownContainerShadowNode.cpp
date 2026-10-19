@@ -13,14 +13,15 @@ extern const char MarkdownContainerComponentName[] = "EnrichedMarkdown";
 
 namespace {
 
-// Widths that land on the same physical pixel are the same width: Yoga hands
-// measureContent the unrounded available width and layout() the rounded frame.
+// Widths less than a pixel apart are the same width: Yoga hands measureContent
+// the unrounded available width and layout() a frame whose two edges it rounded
+// separately.
 bool sameWidth(Float a, Float b, Float pointScaleFactor) {
   if (std::isinf(a) || std::isinf(b)) {
     return a == b;
   }
   const Float scale = pointScaleFactor > 0 ? pointScaleFactor : 1;
-  return std::abs(a - b) * scale < 0.5;
+  return std::abs(a - b) * scale < 1;
 }
 
 } // namespace
@@ -39,14 +40,6 @@ void MarkdownContainerShadowNode::dirtyLayoutIfNeeded() {
     forceHeightRecalculationCounter_ = counter;
     dirtyLayout();
   }
-}
-
-// Only new props change the rendered markdown. When a parent is cloned, React Native's adoptYogaChild
-// re-clones its children without new props, and dirtying those clones re-measures every settled message
-// whenever the list above grows.
-bool MarkdownContainerShadowNode::shouldNewRevisionDirtyMeasurement(const ShadowNode & /*sourceShadowNode*/,
-                                                                    const ShadowNodeFragment &fragment) const {
-  return fragment.props != nullptr;
 }
 
 std::vector<BlockSlotChild> MarkdownContainerShadowNode::slotChildren() const {
@@ -69,7 +62,7 @@ bool MarkdownContainerShadowNode::slotMeasurementMatches(const LayoutContext &la
                                                          Float width) const {
   const auto &m = slotMeasurement_;
   if (!m.valid || m.props != getProps().get() || m.counter != getStateData().getForceHeightRecalculationCounter() ||
-      m.width != width || m.frames.size() != children.size()) {
+      !sameWidth(m.width, width, layoutContext.pointScaleFactor) || m.frames.size() != children.size()) {
     return false;
   }
   for (size_t i = 0; i < children.size(); i++) {
@@ -131,6 +124,14 @@ Size MarkdownContainerShadowNode::measureWithSlots(const LayoutContext &layoutCo
   slotMeasurement_ = SlotMeasurement{true,  true, getProps().get(), getStateData().getForceHeightRecalculationCounter(),
                                      width, size, session.frames()};
   return size;
+}
+
+// Only new props change the rendered markdown. When a parent is cloned, React Native's adoptYogaChild
+// re-clones its children without new props, and dirtying those clones re-measures every settled message
+// whenever the list above grows.
+bool MarkdownContainerShadowNode::shouldNewRevisionDirtyMeasurement(const ShadowNode & /*sourceShadowNode*/,
+                                                                    const ShadowNodeFragment &fragment) const {
+  return fragment.props != nullptr;
 }
 
 Size MarkdownContainerShadowNode::measureContent(const LayoutContext &layoutContext,
@@ -199,8 +200,10 @@ void MarkdownContainerShadowNode::layout(LayoutContext layoutContext) {
       continue;
     }
 
-    // The session already rounded the height up to the pixel grid.
-    const auto size = roundToPixel<&std::ceil>(Size{frame.width, frame.height}, layoutMetrics.pointScaleFactor);
+    // The height is already on the pixel grid (rounding it up again adds a pixel
+    // of float error); the width rounds up so the child keeps its measured width.
+    const auto size = Size{roundToPixel<&std::ceil>(frame.width, layoutMetrics.pointScaleFactor),
+                           roundToPixel<&std::round>(frame.height, layoutMetrics.pointScaleFactor)};
     const auto origin = roundToPixel<&std::round>(
         Point{contentFrame.origin.x + frame.x, contentFrame.origin.y + frame.y}, layoutMetrics.pointScaleFactor);
 

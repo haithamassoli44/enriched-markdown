@@ -14,7 +14,7 @@ export interface NativeMd4cFlags {
 
 export interface NativeBlockSlot {
   id: string;
-  /** 'image' | 'video' */
+  /** 'image' | 'video' | 'link' */
   kind: string;
   url: string;
   /** `""` for videos. */
@@ -23,6 +23,8 @@ export interface NativeBlockSlot {
   title: string;
   /** 'root' | 'blockquote' | 'admonition' */
   placement: string;
+  /** The image occurrence of an image block, `""` for other kinds. */
+  occurrenceId: string;
 }
 
 export interface NativeImageOccurrence {
@@ -49,8 +51,9 @@ export interface NativeCollectedBlocks {
 
 /**
  * Synchronous access to the C++ core's block collector, so the slot children
- * for `renderers` and the sources for `resolveImageSource` land in the same
- * React commit as the markdown they belong to. One parse serves both.
+ * for `renderers` land in the same React commit as the markdown they belong to.
+ * The filter and parse it runs are shared with the native measurement and
+ * render of the same tick.
  */
 export interface Spec extends TurboModule {
   collect(

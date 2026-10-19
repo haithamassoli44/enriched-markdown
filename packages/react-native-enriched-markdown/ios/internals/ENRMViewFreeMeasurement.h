@@ -25,6 +25,7 @@
 #import "ENRMMathContainerView.h"
 #endif
 #if ENRICHED_MARKDOWN_VIDEO
+#import "ENRMUTF8.h"
 #import "ENRMVideoContainerView.h"
 #endif
 
@@ -184,7 +185,7 @@ static inline CGSize ENRMMeasureMarkdownViewFree(const PropsT &typedProps, CGFlo
       return fallback;
     }
 
-    NSString *markdown = [[NSString alloc] initWithUTF8String:typedProps.markdown.c_str()];
+    NSString *markdown = ENRMStringFromUTF8(typedProps.markdown);
     StyleConfig *config = ENRMStyleConfigFromProps(typedProps, fontScale);
 
     ENRMMd4cFlags *flags = ENRMMd4cFlagsFromProps(typedProps.md4cFlags);
@@ -258,7 +259,7 @@ static inline CGSize ENRMMeasureSegmentedMarkdownViewFree(const PropsT &typedPro
       return fallback;
     }
 
-    NSString *markdown = [[NSString alloc] initWithUTF8String:typedProps.markdown.c_str()];
+    NSString *markdown = ENRMStringFromUTF8(typedProps.markdown);
 
     if (typedProps.streamingAnimation) {
       NSString *tableModeStr = [[NSString alloc] initWithUTF8String:typedProps.streamingConfig.tableMode.c_str()];

@@ -27,9 +27,10 @@ set(ANDROID_CPP_DIR "${LIB_ANDROID_DIR}/src/main/cpp")
 # RN-specific C++ shared with iOS (the EnrichedMarkdownParser TurboModule).
 set(COMMON_CPP_DIR "${LIB_ANDROID_DIR}/../common")
 
-# Optional tree-sitter code highlighting. build.gradle writes this config during
-# configuration (enable flag, selected languages, generated registry dir); absent
-# on a bare CMake invocation, in which case highlighting stays compiled out.
+# Optional tree-sitter code highlighting and the math flag. build.gradle writes
+# this config during configuration (enable flags, selected languages, generated
+# registry dir); absent on a bare CMake invocation, in which case highlighting
+# stays compiled out and math stays on.
 set(HIGHLIGHT_CONFIG "${LIB_ANDROID_DIR}/build/generated/highlight/highlight-config.cmake")
 if(EXISTS "${HIGHLIGHT_CONFIG}")
   include("${HIGHLIGHT_CONFIG}")
@@ -98,6 +99,11 @@ target_include_directories(
 )
 
 target_compile_reactnative_options(${LIB_TARGET_NAME} PRIVATE)
+
+# Math off in the build: the JS block collector parses without it, like the host.
+if(DEFINED ENRICHED_MARKDOWN_MATH AND NOT ENRICHED_MARKDOWN_MATH)
+  target_compile_definitions(${LIB_TARGET_NAME} PRIVATE ENRICHED_MARKDOWN_MATH_DISABLED=1)
+endif()
 
 # --- Code-block syntax highlighting (tree-sitter) ---
 # CodeBlockHighlighter.cpp / CodeBlockLanguages.cpp are already in the target via
