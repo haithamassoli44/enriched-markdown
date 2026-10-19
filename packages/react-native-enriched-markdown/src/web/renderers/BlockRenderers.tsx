@@ -23,14 +23,23 @@ function ParagraphRenderer({
   capabilities,
   renderChildren,
 }: RendererProps) {
-  const slot = blockSlotFor(node, capabilities);
-  if (slot !== undefined) return <>{slot}</>;
-
   const isImageOnly =
     node.children?.length === 1 && node.children[0]?.type === 'Image';
+  const inQuote = parentType === 'Blockquote' || parentType === 'Admonition';
+
+  const slot = blockSlotFor(node, capabilities);
+  if (slot !== undefined) {
+    const spacing = isImageOnly
+      ? styles.image
+      : inQuote
+        ? styles.paragraphInBlockquote
+        : styles.paragraph;
+    return <div style={slotSpacing(spacing)}>{slot}</div>;
+  }
+
   if (isImageOnly) return <>{renderChildren(node)}</>;
 
-  if (parentType === 'Blockquote' || parentType === 'Admonition') {
+  if (inQuote) {
     return <p style={styles.paragraphInBlockquote}>{renderChildren(node)}</p>;
   }
 
@@ -171,6 +180,12 @@ function BlankLineRenderer({ node, style }: RendererProps) {
   );
 }
 
+// A replacement keeps the vertical spacing of the block it stands in for, as the
+// native hosts give its placeholder the block's margins.
+function slotSpacing(style: CSSProperties): CSSProperties {
+  return { marginTop: style.marginTop, marginBottom: style.marginBottom };
+}
+
 // A block slot the app filled, or undefined to keep the default rendering.
 function blockSlotFor(
   node: ASTNode,
@@ -257,11 +272,13 @@ function LatexMathDisplayRenderer({
 }
 
 function VideoRenderer({ node, styles, capabilities }: RendererProps) {
+  const slot = blockSlotFor(node, capabilities);
+  if (slot !== undefined) {
+    return <div style={slotSpacing(styles.video)}>{slot}</div>;
+  }
+
   const url = node.attributes?.url;
   if (!url) return null;
-
-  const slot = blockSlotFor(node, capabilities);
-  if (slot !== undefined) return <>{slot}</>;
 
   const title = node.attributes?.title;
   const alt = extractNodeText(node).trim();

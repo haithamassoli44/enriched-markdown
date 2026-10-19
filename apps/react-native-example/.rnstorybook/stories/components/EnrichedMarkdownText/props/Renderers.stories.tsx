@@ -319,7 +319,7 @@ function RenderersStory({
       image: replaceImages
         ? (block) => {
             if (keepQuotedNative && block.placement === 'blockquote')
-              return null;
+              return undefined;
             if (block.altText === 'Natural size')
               return <NaturalImage block={block} />;
             return <Figure block={block} onPress={onImagePress} />;
@@ -344,13 +344,13 @@ function RenderersStory({
         };
       case 'pending':
         // Never settles: every image keeps its placeholder and nothing is requested.
-        return () => new Promise<null>(() => {});
+        return () => new Promise<undefined>(() => {});
       case 'reject':
         // Inline and list images fail; block images load their Markdown URL.
         return (image: MarkdownImageOccurrence) =>
           image.placement === 'inline' || image.placement === 'list'
             ? Promise.reject(new Error(`no source for ${image.id}`))
-            : null;
+            : undefined;
       default:
         return undefined;
     }

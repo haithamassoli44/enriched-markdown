@@ -18,18 +18,17 @@ import { recognizeTextLinks } from './recognizeTextLinks';
 import { RenderNode } from './renderers';
 import type { ASTNode, RendererCallbacks, RenderCapabilities } from './types';
 import { indexTaskItems, markInlineImages } from './utils';
-import { collectBlocks } from './blockSlots';
+import { collectBlocks, type CollectedBlocks } from './blockSlots';
 import { useResolvedImageSources } from '../imageSources';
-import { useRenderedBlocks } from '../blockRenderers';
-import type {
-  MarkdownBlock,
-  MarkdownImageOccurrence,
-} from '../types/MarkdownTextProps';
+import { hasRenderers, useRenderedBlocks } from '../blockRenderers';
+import type { MarkdownImageOccurrence } from '../types/MarkdownTextProps';
 import { loadKaTeX } from './katex';
 import type { KaTeXInstance } from './katex';
 import { ENRM_TEXT_CLASS, ENRM_SELECTION_BG_VAR } from './globalStyles';
 import { filterNativeOnlyProps } from './nativeProps';
 import { isDev } from '../utils/isDev';
+
+const EMPTY: CollectedBlocks = { blocks: [], images: [] };
 
 export const EnrichedMarkdownText = ({
   markdown,
@@ -58,10 +57,10 @@ export const EnrichedMarkdownText = ({
   );
 
   const [ast, setAst] = useState<ASTNode | null>(null);
-  const [collected, setCollected] = useState<{
-    blocks: MarkdownBlock[];
-    images: MarkdownImageOccurrence[];
-  }>({ blocks: [], images: [] });
+  const [collected, setCollected] = useState<CollectedBlocks>(EMPTY);
+  const renderersEnabled = hasRenderers(renderers);
+  // Collecting hashes every image and link: only when something reads it.
+  const collectEnabled = renderersEnabled || resolveImageSource != null;
   const [katex, setKatex] = useState<KaTeXInstance | null>(null);
   const [parseError, setParseError] = useState<boolean>(false);
 
@@ -104,7 +103,7 @@ export const EnrichedMarkdownText = ({
         if (!cancelled) {
           indexTaskItems(result);
           markInlineImages(result);
-          setCollected(collectBlocks(result));
+          setCollected(collectEnabled ? collectBlocks(result) : EMPTY);
 
           setParseError(false);
           setKatex(katexInstance);
@@ -144,6 +143,7 @@ export const EnrichedMarkdownText = ({
     admonitions,
     textLinkKey,
     inlineCodeLinkKey,
+    collectEnabled,
   ]);
 
   const callbacks = useMemo<RendererCallbacks>(
@@ -164,18 +164,14 @@ export const EnrichedMarkdownText = ({
   );
 
   const renderedBlocks = useRenderedBlocks(collected.blocks, renderers);
-  const hasRenderers =
-    renderers?.image != null ||
-    renderers?.video != null ||
-    renderers?.link != null;
   const blockSlots = useMemo(() => {
-    if (!hasRenderers) return undefined;
+    if (!renderersEnabled) return undefined;
     const slots = new Map<string, ReactNode>();
     for (const { block, element } of renderedBlocks) {
       slots.set(block.id, element);
     }
     return slots;
-  }, [hasRenderers, renderedBlocks]);
+  }, [renderersEnabled, renderedBlocks]);
 
   const imageSources = useImageSources(collected.images, resolveImageSource);
 
@@ -269,9 +265,12 @@ function useImageSources(
   return useMemo(() => {
     if (!resolved) return undefined;
     const result = new Map<string, string | null>();
-    for (const [id, source] of resolved) {
-      if (source === null) continue;
-      result.set(id, source === undefined ? null : source.uri || null);
+    for (const [id, resolution] of resolved) {
+      if (resolution.state === 'markdown') continue;
+      result.set(
+        id,
+        resolution.state === 'resolved' ? resolution.source.uri || null : null
+      );
     }
     return result;
   }, [resolved]);

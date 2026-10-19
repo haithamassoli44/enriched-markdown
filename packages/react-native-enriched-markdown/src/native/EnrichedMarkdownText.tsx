@@ -18,11 +18,8 @@ import {
   normalizeLinkContextMenuItems,
 } from '../linkContextMenuUtils';
 import { resolveAccessibilityLabels } from '../accessibilityLabelDefaults';
-import {
-  hasRenderers,
-  useBlockSlots,
-  useCollectedMarkdown,
-} from './useBlockSlots';
+import { useBlockSlots, useCollectedMarkdown } from './useBlockSlots';
+import { hasRenderers } from '../blockRenderers';
 import { useImageSources } from './useImageSources';
 import {
   normalizeMenuItem,
@@ -463,10 +460,11 @@ export const EnrichedMarkdownText = ({
     [accessibilityLabels]
   );
 
-  // One parse on the JS thread serves both, so the slot children and the image
-  // sources land in the same commit as the markdown they describe.
+  // One parse on the JS thread serves both: the slot children land in the same
+  // commit as the markdown they describe, the image sources before it is drawn.
   const isGFM = flavor === 'github';
   const renderersEnabled = hasRenderers(renderers);
+  const collectEnabled = renderersEnabled || resolveImageSource != null;
   const collectStreaming = useMemo(
     () => ({
       enabled: streamingAnimation,
@@ -480,7 +478,7 @@ export const EnrichedMarkdownText = ({
     markdown,
     normalizedMd4cFlags,
     isGFM,
-    renderersEnabled || resolveImageSource != null,
+    collectEnabled,
     collectStreaming
   );
   const slotChildren = useBlockSlots(

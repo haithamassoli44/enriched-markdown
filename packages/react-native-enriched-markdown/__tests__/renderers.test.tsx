@@ -50,6 +50,7 @@ const IMAGE_BLOCK: NativeBlockSlot = {
   altText: 'Hero',
   title: '',
   placement: 'root',
+  occurrenceId: 'img:0123456789abcdef:0',
 };
 
 const VIDEO_BLOCK: NativeBlockSlot = {
@@ -59,6 +60,7 @@ const VIDEO_BLOCK: NativeBlockSlot = {
   altText: '',
   title: '',
   placement: 'blockquote',
+  occurrenceId: '',
 };
 
 function render(element: ReactElement): Root {
@@ -136,13 +138,30 @@ it('keeps native rendering for blocks the renderer declines or does not cover', 
     <EnrichedMarkdownText
       markdown="x"
       flavor="github"
-      renderers={{ image: () => null, video: () => <View testID="player" /> }}
+      renderers={{
+        image: () => undefined,
+        video: () => <View testID="player" />,
+      }}
     />
   );
 
   const mounted = slots(root);
   expect(mounted).toHaveLength(1);
   expect(mounted[0]!.props.slotId).toBe(VIDEO_BLOCK.id);
+});
+
+it('keeps the native block for null or false from untyped callers', () => {
+  const root = render(
+    <EnrichedMarkdownText
+      markdown="x"
+      flavor="github"
+      renderers={{
+        image: () => null as unknown as undefined,
+        video: () => false as unknown as undefined,
+      }}
+    />
+  );
+  expect(slots(root)).toHaveLength(0);
 });
 
 it('does not collect blocks when no renderer is set', () => {
@@ -270,7 +289,12 @@ it('keeps the native block when an array result contains text', () => {
       markdown="x"
       flavor="github"
       renderers={{
-        image: () => [<View key="a" testID="a" />, null, [<View key="b" />]],
+        image: () =>
+          [
+            <View key="a" testID="a" />,
+            null,
+            [<View key="b" />],
+          ] as unknown as ReactElement,
         video: () => ['Loading…'] as unknown as ReactElement,
       }}
     />
@@ -397,6 +421,112 @@ it('resolves each image once and keeps settled sources across markdown changes',
     { id: 'image:c:0', uri: 'https://cdn/image:c:0', headers: [] },
     { id: 'image:d:0', uri: '', headers: [] },
   ]);
+  await act(async () => {
+    await Promise.resolve();
+  });
+});
+
+it('keeps the imageSources prop while a tick adds no image', () => {
+  mockSlots = [];
+  mockImages = OCCURRENCES;
+  const resolveImageSource = ({ id }: { id: string }) => ({
+    uri: `https://cdn/${id}`,
+  });
+  const root = render(
+    <EnrichedMarkdownText
+      markdown="x"
+      flavor="github"
+      resolveImageSource={resolveImageSource}
+    />
+  );
+  const first = host(root).props.imageSources;
+  // The collector returns new objects every tick.
+  mockImages = OCCURRENCES.map((image) => ({ ...image }));
+  act(() =>
+    root.render(
+      <EnrichedMarkdownText
+        markdown="x and more"
+        flavor="github"
+        resolveImageSource={resolveImageSource}
+      />
+    )
+  );
+  expect(host(root).props.imageSources).toBe(first);
+});
+
+it('asks again when an image moves to another placement, and forgets removed images', () => {
+  mockSlots = [];
+  mockImages = OCCURRENCES;
+  const resolver = jest.fn(({ id }: { id: string }) => ({
+    uri: `https://cdn/${id}`,
+  }));
+  const tree = (markdown: string) => (
+    <EnrichedMarkdownText
+      markdown={markdown}
+      flavor="github"
+      resolveImageSource={resolver}
+    />
+  );
+  const root = render(tree('x'));
+  expect(resolver).toHaveBeenCalledTimes(3);
+
+  // An edit moves image a into a quote: its old answer may not fit there.
+  mockImages = [
+    { ...OCCURRENCES[0]!, placement: 'blockquote' },
+    ...OCCURRENCES.slice(1),
+  ];
+  act(() => root.render(tree('y')));
+  expect(resolver).toHaveBeenCalledTimes(4);
+  expect(resolver).toHaveBeenLastCalledWith(
+    expect.objectContaining({ id: 'image:a:0', placement: 'blockquote' })
+  );
+
+  // b leaves the document and comes back: it is asked about again.
+  mockImages = [mockImages[0]!, mockImages[2]!];
+  act(() => root.render(tree('z')));
+  mockImages = [mockImages[0]!, OCCURRENCES[1]!, mockImages[1]!];
+  act(() => root.render(tree('z b')));
+  expect(resolver).toHaveBeenCalledTimes(5);
+});
+
+it('never asks the resolver during a render that does not commit', async () => {
+  mockSlots = [];
+  mockImages = OCCURRENCES.slice(0, 1);
+  let release!: () => void;
+  let released = false;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  }).then(() => {
+    released = true;
+  });
+  function Suspender({ wait }: { wait: boolean }) {
+    if (wait && !released) throw gate;
+    return null;
+  }
+  const resolver = jest.fn(({ id }: { id: string }) => ({
+    uri: `https://cdn/${id}`,
+  }));
+  const tree = (wait: boolean) => (
+    <Suspense fallback={null}>
+      <EnrichedMarkdownText
+        markdown={wait ? 'x more' : 'x'}
+        flavor="github"
+        resolveImageSource={resolver}
+      />
+      <Suspender wait={wait} />
+    </Suspense>
+  );
+  const root = render(tree(false));
+  expect(resolver).toHaveBeenCalledTimes(1);
+
+  mockImages = OCCURRENCES.slice(0, 2);
+  act(() => root.render(tree(true)));
+  expect(resolver).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    release();
+    await gate;
+  });
+  expect(resolver).toHaveBeenCalledTimes(2);
 });
 
 it('sends sync image sources to native and keeps pending ones as empty uris', async () => {
@@ -418,7 +548,7 @@ it('sends sync image sources to native and keeps pending ones as empty uris', as
           };
         }
         if (id === 'image:b:0') return pending;
-        return null;
+        return undefined;
       }}
     />
   );

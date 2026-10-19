@@ -41,14 +41,18 @@ export function useImageSources(
   return useMemo(() => {
     if (!resolved) return undefined;
     const result: NativeImageSource[] = [];
-    for (const [id, source] of resolved) {
-      if (source === null) continue;
-      if (source === undefined) {
+    for (const [id, resolution] of resolved) {
+      if (resolution.state === 'markdown') continue;
+      if (resolution.state === 'pending') {
         result.push({ id, uri: '', headers: NO_HEADERS });
         continue;
       }
-      const uri = typeof source.uri === 'string' ? source.uri : '';
-      result.push({ id, uri, headers: toNativeHeaders(source.headers) });
+      const { uri, headers } = resolution.source;
+      result.push({
+        id,
+        uri: typeof uri === 'string' ? uri : '',
+        headers: toNativeHeaders(headers),
+      });
     }
     return result;
   }, [resolved]);

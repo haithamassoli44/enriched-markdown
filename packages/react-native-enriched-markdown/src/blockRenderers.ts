@@ -5,6 +5,8 @@ import type {
   MarkdownRenderers,
 } from './types/MarkdownTextProps';
 
+// What a renderer may return at runtime from plain JS, beyond its typed
+// `ReactElement | undefined`.
 type AnyRenderer = (block: MarkdownBlock) => ReactNode;
 
 /**
@@ -22,20 +24,20 @@ function isRenderableChild(node: ReactNode): boolean {
 
 /**
  * Runs the renderer for the block's kind and validates the result, the same
- * way on native and web. Elements, fragments and arrays of elements replace
- * the block; `null`, `undefined` and booleans keep the native block, like a
- * React child would. Strings and numbers, alone or inside an array, are not
- * valid children of a native view, so they keep the native block too, with a
- * dev warning; so does a renderer that throws.
+ * way on native and web. An element replaces the block; `undefined` keeps the
+ * native block, and so do `null` and booleans from untyped callers. Strings and
+ * numbers, alone or inside an array or fragment, are not valid children of a
+ * native view, so they keep the native block too, with a dev warning; so does a
+ * renderer that throws.
  */
 export function renderBlock(
   renderers: MarkdownRenderers,
   block: MarkdownBlock
-): ReactNode | null {
+): ReactNode | undefined {
   const render = (renderers as Record<string, AnyRenderer | undefined>)[
     block.kind
   ];
-  if (typeof render !== 'function') return null;
+  if (typeof render !== 'function') return undefined;
   let element: ReactNode;
   try {
     element = render(block);
@@ -46,9 +48,9 @@ export function renderBlock(
         error
       );
     }
-    return null;
+    return undefined;
   }
-  if (element == null || typeof element === 'boolean') return null;
+  if (element == null || typeof element === 'boolean') return undefined;
   if (isRenderableChild(element)) return element;
   if (__DEV__) {
     console.warn(
@@ -57,7 +59,21 @@ export function renderBlock(
       } for ${block.id}; wrap text in <Text>. Keeping the native block.`
     );
   }
-  return null;
+  return undefined;
+}
+
+/**
+ * Whether any `renderers` entry is a function: `{}`, `undefined` entries and
+ * unknown keys cost no parse. Shared by native, web and `useRenderedBlocks`.
+ */
+export function hasRenderers(
+  renderers: MarkdownRenderers | undefined
+): boolean {
+  return (
+    typeof renderers?.image === 'function' ||
+    typeof renderers?.video === 'function' ||
+    typeof renderers?.link === 'function'
+  );
 }
 
 export interface RenderedBlock {
@@ -85,16 +101,17 @@ export function useRenderedBlocks(
   blocks: ReadonlyArray<MarkdownBlock>,
   renderers: MarkdownRenderers | undefined
 ): ReadonlyArray<RenderedBlock> {
-  const image = renderers?.image;
-  const video = renderers?.video;
-  const link = renderers?.link;
+  const enabled = hasRenderers(renderers);
+  const image = enabled ? renderers?.image : undefined;
+  const video = enabled ? renderers?.video : undefined;
+  const link = enabled ? renderers?.link : undefined;
   const cache = useMemo(
     () => new Map<string, RenderedBlock>(),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one cache per renderer set
     [image, video, link]
   );
   return useMemo(() => {
-    if (image == null && video == null && link == null) return NO_BLOCKS;
+    if (!enabled) return NO_BLOCKS;
     const rendered: RenderedBlock[] = [];
     const seen = new Set<string>();
     for (const block of blocks) {
@@ -110,5 +127,5 @@ export function useRenderedBlocks(
       if (!seen.has(id)) cache.delete(id);
     }
     return rendered;
-  }, [blocks, cache, image, video, link]);
+  }, [blocks, cache, enabled, image, video, link]);
 }

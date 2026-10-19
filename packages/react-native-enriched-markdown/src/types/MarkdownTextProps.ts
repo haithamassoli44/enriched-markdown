@@ -1,5 +1,5 @@
 import type { ColorValue, ViewProps, ViewStyle, TextStyle } from 'react-native';
-import type { ReactNode } from 'react';
+import type { ReactElement } from 'react';
 import type { MarkdownStyle, Md4cFlags } from './MarkdownStyle';
 import type { AccessibilityLabels } from './AccessibilityLabels';
 import type {
@@ -113,7 +113,12 @@ export interface SelectionMenuConfig {
   };
 }
 
-/** The container a replaceable block sits in directly. */
+/**
+ * The container a replaceable block sits in directly: the document itself, a
+ * blockquote, or an admonition (`> [!NOTE]`). Inside a blockquote or an
+ * admonition the block is narrower and indented, so a renderer may size or
+ * style its element differently there.
+ */
 export type MarkdownBlockPlacement = 'root' | 'blockquote' | 'admonition';
 
 /**
@@ -122,11 +127,9 @@ export type MarkdownBlockPlacement = 'root' | 'blockquote' | 'admonition';
  */
 export interface MarkdownSlotBlock {
   /**
-   * `<kind>:<hash>:<n>`: the kind, an FNV-1a 64 hash of the URL exactly as
-   * written in the Markdown (after entity decoding) and the index among blocks
-   * of the same kind and URL. Stable across streaming appends, edits elsewhere
-   * in the document and inline images being added or removed, so it is safe as
-   * a React key.
+   * An opaque string, the same on every platform. It stays the same while the
+   * block is unchanged, across streaming appends and edits elsewhere in the
+   * document, so it is safe as a React key. Do not parse it.
    */
   id: string;
   placement: MarkdownBlockPlacement;
@@ -143,6 +146,12 @@ export interface MarkdownImageBlock extends MarkdownMediaBlock {
   altText: string;
   /** The Markdown title, `""` when there is none. */
   title: string;
+  /**
+   * The id of this image's `MarkdownImageOccurrence`, the one
+   * `resolveImageSource` is asked about. Block ids and occurrence ids are never
+   * equal, so one map can hold both.
+   */
+  occurrenceId: string;
 }
 
 /** A `<video src="...">` block. */
@@ -162,7 +171,7 @@ export interface MarkdownLinkBlock extends MarkdownMediaBlock {
   title: string;
 }
 
-/** Every block a `renderers` entry can replace. */
+/** Every block a `renderers` entry can replace, for code that handles any kind. */
 export type MarkdownBlock =
   | MarkdownImageBlock
   | MarkdownVideoBlock
@@ -170,16 +179,21 @@ export type MarkdownBlock =
 
 /**
  * React replacements for native blocks, keyed by block kind. Return a React
- * element to render it in place of the native block, or `null`/`undefined` to
- * keep the native rendering for that block.
+ * element to render it in place of the native block, or nothing (`undefined`)
+ * to keep the native rendering for that block.
  */
 export interface MarkdownRenderers {
-  image?: (block: MarkdownImageBlock) => ReactNode;
-  video?: (block: MarkdownVideoBlock) => ReactNode;
-  link?: (block: MarkdownLinkBlock) => ReactNode;
+  image?: (block: MarkdownImageBlock) => ReactElement | undefined;
+  video?: (block: MarkdownVideoBlock) => ReactElement | undefined;
+  link?: (block: MarkdownLinkBlock) => ReactElement | undefined;
 }
 
-/** Where an image is rendered; the first three mean a standalone image paragraph. */
+/**
+ * Where an image is rendered. `root`, `blockquote` and `admonition` mean an
+ * image paragraph (a replaceable block); `inline` is an image inside running
+ * text, `list` one inside a list item, `table` one in a table cell, and `link`
+ * an image that is the content of a link (`[![thumb](a)](b)`).
+ */
 export type MarkdownImagePlacement =
   | MarkdownBlockPlacement
   | 'inline'
@@ -188,10 +202,10 @@ export type MarkdownImagePlacement =
   | 'link';
 
 /**
- * One image in the document, in document order. The id is
- * `image:<hash of the URL>:<n>` with n counting every earlier image of the same
- * URL, so it is stable across streaming appends and edits elsewhere. A block
- * image's occurrence id is distinct from its `MarkdownImageBlock` id.
+ * One image in the document, in document order, wherever it sits. The id is an
+ * opaque string that stays the same while the image is unchanged, across
+ * streaming appends and edits elsewhere. It never equals a block id; an image
+ * block names its occurrence in `MarkdownImageBlock.occurrenceId`.
  */
 export interface MarkdownImageOccurrence {
   id: string;
@@ -634,8 +648,8 @@ export interface EnrichedMarkdownTextProps extends Omit<ViewProps, 'style'> {
   ellipsizeMode?: 'head' | 'middle' | 'tail' | 'clip';
   /**
    * React replacements for block media, keyed by kind. Each renderer receives the
-   * block and returns the element to show in its place, or `null`/`undefined` to
-   * keep the native rendering. The element is laid out by React at the block's
+   * block and returns the element to show in its place, or nothing (`undefined`)
+   * to keep the native rendering. The element is laid out by React at the block's
    * width and must have an intrinsic height; the surrounding Markdown stays
    * native and keeps its position, selection and accessibility.
    *
@@ -647,11 +661,15 @@ export interface EnrichedMarkdownTextProps extends Omit<ViewProps, 'style'> {
    *
    * A renderer runs once per block and again only when that block or any
    * renderer function changes, so a streaming append does not re-render the
-   * blocks already shown. Keep the functions stable with `useCallback`. A
-   * renderer that throws, or returns a string or number, keeps the native
-   * block (with a dev warning) until it runs again.
+   * blocks already shown. Keep the functions stable with `useCallback`. It is a
+   * plain function, not a component: return an element and keep hooks and
+   * state inside the component it returns. A renderer that throws, or returns
+   * text, keeps the native block (with a dev warning) until it runs again.
    *
-   * Only applies when `flavor="github"`. Needs the New Architecture.
+   * A replaced block's element owns its presses: `onImagePress`,
+   * `onLinkPress`, `onLinkLongPress` and the link menu do not fire for it.
+   *
+   * Only applies when `flavor="github"`.
    *
    * @example
    * renderers={{
@@ -663,27 +681,27 @@ export interface EnrichedMarkdownTextProps extends Omit<ViewProps, 'style'> {
   renderers?: MarkdownRenderers;
   /**
    * Chooses the request made for each image instead of its Markdown URL, e.g. a
-   * signed URL or per-image headers. Called once per image occurrence id for
-   * the lifetime of the component, including images in lists, tables,
-   * blockquotes and links; a streaming append or an edit elsewhere only asks
-   * about the new images, and earlier results stay applied. Return a source, a
-   * promise of one, or `null`/`undefined` to load the original URL. While a
-   * promise is pending, and when it rejects or resolves to an empty `uri`, the
-   * image keeps its placeholder and the original URL is not requested.
+   * signed URL or per-image headers. Called once per image while it stays in
+   * the document, including images in lists, tables, blockquotes and links; a
+   * streaming append or an edit elsewhere only asks about the new images, and
+   * earlier results stay applied. Return a source, a promise of one, or nothing
+   * (`undefined`) to load the original URL. Until it answers, and when a promise
+   * rejects or resolves to an empty `uri`, the image keeps its placeholder and
+   * the original URL is not requested.
    *
-   * The function is read like an event handler: changing it does not resolve
-   * again. Remount the component with a `key` to start over (e.g. after a token
-   * refresh). Events, copy actions and `renderers` keep reporting the Markdown
-   * URL.
+   * It is called after rendering, never during it, so it may start a request
+   * or update other state. The function is read like an event handler:
+   * changing it does not resolve again. Remount the component with a `key` to
+   * start over (e.g. after a token refresh). Events, copy actions and
+   * `renderers` keep reporting the Markdown URL.
    *
-   * Only applies when `flavor="github"`. Needs the New Architecture.
+   * Only applies when `flavor="github"`.
    * @platform ios, android, web
    */
   resolveImageSource?: (
     image: MarkdownImageOccurrence
   ) =>
     | MarkdownImageSource
-    | null
     | undefined
-    | Promise<MarkdownImageSource | null | undefined>;
+    | Promise<MarkdownImageSource | undefined>;
 }

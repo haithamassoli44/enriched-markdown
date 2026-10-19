@@ -25,19 +25,6 @@ const EMPTY: CollectedMarkdown = { blocks: [], images: [] };
 let warnedAboutModule = false;
 let warnedAboutFlavor = false;
 
-/** Whether any `renderers` entry is set, so `{}` does not cost a parse. */
-export function hasRenderers(
-  renderers: MarkdownRenderers | undefined
-): boolean {
-  if (renderers == null) return false;
-  for (const key in renderers) {
-    if (typeof renderers[key as keyof MarkdownRenderers] === 'function') {
-      return true;
-    }
-  }
-  return false;
-}
-
 /**
  * The blocks `renderers` may replace and the image occurrences
  * `resolveImageSource` is asked about, in document order, from one parse by
@@ -68,7 +55,7 @@ export function useCollectedMarkdown(
       if (__DEV__ && !warnedAboutModule) {
         warnedAboutModule = true;
         console.warn(
-          '[EnrichedMarkdownText] `renderers` and `resolveImageSource` need the EnrichedMarkdownParser TurboModule, which is only available on the New Architecture.'
+          '[EnrichedMarkdownText] `renderers` and `resolveImageSource` need the EnrichedMarkdownParser TurboModule, which is not registered; rebuild the native app. Images, videos and links render natively meanwhile.'
         );
       }
       return EMPTY;
@@ -102,6 +89,7 @@ export function useCollectedMarkdown(
               altText: slot.altText,
               title: slot.title,
               placement,
+              occurrenceId: slot.occurrenceId,
             };
         }
       }),

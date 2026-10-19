@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   EnrichedMarkdownTextProps,
   MarkdownImageOccurrence,
@@ -9,13 +9,23 @@ export type ImageSourceResolver = NonNullable<
   EnrichedMarkdownTextProps['resolveImageSource']
 >;
 
-/**
- * What the resolver decided for one occurrence: a source, `null` for "keep the
- * Markdown URL", or `undefined` while its promise is still pending.
- */
-export type ResolvedImageSource = MarkdownImageSource | null | undefined;
+/** What the resolver decided for one occurrence, so far. */
+export type ResolvedImageSource =
+  | { state: 'pending' } // not answered yet, or failed: keep the placeholder
+  | { state: 'markdown' } // load the Markdown URL
+  | { state: 'resolved'; source: MarkdownImageSource };
 
-type SourcePromise = Promise<MarkdownImageSource | null | undefined>;
+const PENDING: ResolvedImageSource = { state: 'pending' };
+const MARKDOWN: ResolvedImageSource = { state: 'markdown' };
+
+// Untyped callers may answer with null; it means the same as undefined.
+function resolution(
+  source: MarkdownImageSource | null | undefined
+): ResolvedImageSource {
+  return source == null ? MARKDOWN : { state: 'resolved', source };
+}
+
+type SourcePromise = Promise<MarkdownImageSource | undefined>;
 
 function isPromise(value: unknown): value is Promise<unknown> {
   return (
@@ -23,17 +33,45 @@ function isPromise(value: unknown): value is Promise<unknown> {
   );
 }
 
+function sameOccurrence(
+  a: MarkdownImageOccurrence,
+  b: MarkdownImageOccurrence
+): boolean {
+  return (
+    a.url === b.url &&
+    a.altText === b.altText &&
+    a.title === b.title &&
+    a.placement === b.placement
+  );
+}
+
+interface CacheEntry {
+  image: MarkdownImageOccurrence;
+  source: ResolvedImageSource;
+}
+
+interface PendingEntry {
+  image: MarkdownImageOccurrence;
+  promise: SourcePromise;
+}
+
 /**
- * Runs `resolveImageSource` once per image occurrence id for the lifetime of
- * the component, shared by the native and web implementations.
+ * Runs `resolveImageSource` once per image while it stays in the document,
+ * shared by the native and web implementations.
  *
- * Results are cached by id, so a streaming append or an edit elsewhere in the
- * document neither re-asks the resolver nor drops an image that already
- * resolved. A promise makes its image pending (`undefined`, the host shows the
- * placeholder) until it settles; a rejection or a thrown error logs in dev and
- * keeps the placeholder. The resolver is read through a ref, like an event
- * handler: changing the function does not re-run it. Remount with a `key` to
- * resolve everything again.
+ * The resolver runs after rendering (a layout effect), never during it, so a
+ * render React throws away starts no request and a resolver may update other
+ * state. Until it answers, the image is pending (the host shows the
+ * placeholder and does not request the Markdown URL); a synchronous answer
+ * lands before the frame is drawn.
+ *
+ * Answers are kept by occurrence id while the occurrence is unchanged, so a
+ * streaming append or an edit elsewhere neither asks again nor drops an image
+ * that already resolved; images that leave the document are forgotten. A
+ * promise keeps its image pending until it settles; a rejection or a thrown
+ * error logs in dev and keeps the placeholder. The resolver is read like an
+ * event handler: changing the function does not run it again. Remount with a
+ * `key` to resolve everything again.
  */
 export function useResolvedImageSources(
   occurrences: ReadonlyArray<MarkdownImageOccurrence>,
@@ -41,19 +79,14 @@ export function useResolvedImageSources(
   enabled: boolean
 ): ReadonlyMap<string, ResolvedImageSource> | undefined {
   const resolverRef = useRef(resolver);
-  resolverRef.current = resolver;
+  useLayoutEffect(() => {
+    resolverRef.current = resolver;
+  });
 
-  // Every result so far and every promise in flight, by id. Refs rather than
-  // state so sync results fold in during render and apply in the same commit
-  // as the markdown; the guard in the fill makes it idempotent across React's
-  // dev double-render.
-  const cacheRef = useRef(new Map<string, ResolvedImageSource>());
-  const pendingRef = useRef(new Map<string, SourcePromise>());
-  const subscribedRef = useRef(new WeakSet<SourcePromise>());
-  const [settledCount, setSettledCount] = useState(0);
+  const cacheRef = useRef(new Map<string, CacheEntry>());
+  const pendingRef = useRef(new Map<string, PendingEntry>());
+  const [version, setVersion] = useState(0);
 
-  // A promise outlives the occurrence set that started it; its result must
-  // still reach the component, so settling checks the mount, not the effect.
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -62,17 +95,36 @@ export function useResolvedImageSources(
     };
   }, []);
 
-  // Asks the resolver about every occurrence without an answer yet. A render
-  // may be thrown away before it commits (a sibling suspends), so this only
-  // records; the effect below subscribes to whatever is pending once a commit
-  // lands.
-  const active = useMemo(() => {
+  const active = enabled && resolver != null;
+
+  useLayoutEffect(() => {
     const resolve = resolverRef.current;
-    if (!enabled || !resolve) return false;
+    if (!active || !resolve) return;
     const cache = cacheRef.current;
     const pending = pendingRef.current;
+    const live = new Set<string>();
+    let changed = false;
+
+    const settle = (
+      id: string,
+      entry: PendingEntry,
+      source: ResolvedImageSource
+    ) => {
+      // A newer request for the id, or the image left: this answer is stale.
+      if (pendingRef.current.get(id) !== entry) return;
+      pendingRef.current.delete(id);
+      cacheRef.current.set(id, { image: entry.image, source });
+      if (mountedRef.current) setVersion((value) => value + 1);
+    };
+
     for (const image of occurrences) {
-      if (cache.has(image.id) || pending.has(image.id)) continue;
+      live.add(image.id);
+      const cached = cache.get(image.id);
+      if (cached && sameOccurrence(cached.image, image)) continue;
+      const inFlight = pending.get(image.id);
+      if (inFlight && sameOccurrence(inFlight.image, image)) continue;
+      cache.delete(image.id);
+      pending.delete(image.id);
       let result: ReturnType<ImageSourceResolver>;
       try {
         result = resolve(image);
@@ -83,57 +135,70 @@ export function useResolvedImageSources(
             error
           );
         }
-        cache.set(image.id, undefined);
+        cache.set(image.id, { image, source: PENDING });
+        changed = true;
         continue;
       }
       if (isPromise(result)) {
-        pending.set(image.id, result);
+        const entry: PendingEntry = { image, promise: result };
+        pending.set(image.id, entry);
+        result.then(
+          (source) => settle(image.id, entry, resolution(source)),
+          (error) => {
+            if (__DEV__) {
+              console.error(
+                '[EnrichedMarkdownText] resolveImageSource rejected:',
+                error
+              );
+            }
+            settle(image.id, entry, PENDING);
+          }
+        );
       } else {
-        cache.set(image.id, result ?? null);
+        cache.set(image.id, { image, source: resolution(result) });
+        changed = true;
       }
     }
-    return true;
-  }, [occurrences, enabled]);
-
-  // After every commit: subscribe to each pending promise exactly once.
-  useEffect(() => {
-    const subscribed = subscribedRef.current;
-    for (const [id, promise] of pendingRef.current) {
-      if (subscribed.has(promise)) continue;
-      subscribed.add(promise);
-      const settle = (source: ResolvedImageSource) => {
-        // The cache outlives this effect: a result landing after the
-        // occurrences changed is still the answer for that id, and the
-        // component re-renders for it as long as it is mounted.
-        if (pendingRef.current.get(id) !== promise) return;
-        pendingRef.current.delete(id);
-        cacheRef.current.set(id, source);
-        if (mountedRef.current) setSettledCount((count) => count + 1);
-      };
-      promise.then(
-        (source) => settle(source ?? null),
-        (error) => {
-          if (__DEV__) {
-            console.error(
-              '[EnrichedMarkdownText] resolveImageSource rejected:',
-              error
-            );
-          }
-          settle(undefined);
-        }
-      );
+    for (const id of cache.keys()) {
+      if (!live.has(id)) cache.delete(id);
     }
-  });
+    for (const id of pending.keys()) {
+      if (!live.has(id)) pending.delete(id);
+    }
+    if (changed) setVersion((value) => value + 1);
+  }, [occurrences, active]);
 
-  // The current occurrences' entries; a pending id maps to undefined.
-  return useMemo(() => {
+  // The current occurrences' answers; one not answered yet is pending.
+  // The previous map is returned while every answer is the same, so a streaming
+  // tick that adds no image changes no prop.
+  const previousRef =
+    useRef<ReadonlyMap<string, ResolvedImageSource>>(undefined);
+  const resolved = useMemo(() => {
     if (!active) return undefined;
     const result = new Map<string, ResolvedImageSource>();
     for (const image of occurrences) {
-      result.set(image.id, cacheRef.current.get(image.id));
+      const cached = cacheRef.current.get(image.id);
+      const current = cached && sameOccurrence(cached.image, image);
+      result.set(image.id, current ? cached.source : PENDING);
     }
-    return result;
-    // settledCount is what re-runs this once an async result lands.
+    const previous = previousRef.current;
+    return previous && sameEntries(previous, result) ? previous : result;
+    // version is what re-runs this once an answer lands.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, occurrences, settledCount]);
+  }, [active, occurrences, version]);
+  useLayoutEffect(() => {
+    previousRef.current = resolved;
+  });
+  return resolved;
+}
+
+function sameEntries(
+  a: ReadonlyMap<string, ResolvedImageSource>,
+  b: ReadonlyMap<string, ResolvedImageSource>
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, source] of b) {
+    if (!a.has(id) || a.get(id) !== source) return false;
+  }
+  return true;
 }

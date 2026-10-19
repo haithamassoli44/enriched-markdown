@@ -145,17 +145,17 @@ export interface EnrichedMarkdownTextProps extends Omit<
    */
   dir?: 'ltr' | 'rtl' | 'auto';
   /**
-   * React replacements for block media, keyed by kind. Applies to a paragraph
-   * whose only content is an image and to `<video>` blocks, directly in the
-   * document, a blockquote or an admonition. Return `null`/`undefined` to keep
-   * the default rendering for a block.
+   * React replacements for blocks, keyed by kind: a paragraph whose only
+   * content is an image or a link, and `<video>` blocks, directly in the
+   * document, a blockquote or an admonition, outside any list. Return nothing
+   * (`undefined`) to keep the default rendering for a block.
    * @platform ios, android, web
    */
   renderers?: MarkdownRenderers;
   /**
    * Chooses the `src` used for each image instead of its Markdown URL. Headers
-   * are ignored on web, where `<img>` requests cannot carry them. While a
-   * promise is pending, or when it rejects or resolves to an empty `uri`, the
+   * are ignored on web, where `<img>` requests cannot carry them. Until it
+   * answers, and when a promise rejects or resolves to an empty `uri`, the
    * image renders without a source.
    * @platform ios, android, web
    */
@@ -163,7 +163,6 @@ export interface EnrichedMarkdownTextProps extends Omit<
     image: MarkdownImageOccurrence
   ) =>
     | MarkdownImageSource
-    | null
     | undefined
-    | Promise<MarkdownImageSource | null | undefined>;
+    | Promise<MarkdownImageSource | undefined>;
 }
