@@ -161,6 +161,53 @@ int main() {
   expect("[note] see [docs] here", "[note] see [docs] here", "two bracketed words are prose");
   expect("[a `]` b](https://e", "", "bracket in a code span inside a label: still open");
 
+  // Review cases: the trailing paragraph, not the last line, holds the syntax.
+  expect("see [the\ndocs](https://e", "see ", "label across a soft line break: cut");
+  expect("> see [the\n> docs](https://e", "> see ", "quoted label across a soft line break: cut");
+  expect("a `x\n[a](https://e` b", "a `x\n[a](https://e` b", "code span across lines kept");
+  expect("para\n    [a](https://e", "para\n    ", "lazy continuation is not indented code");
+  expect("- item\n- see [a](https://e", "- item\n- see ", "only the last list item is scanned");
+  expect("See [docs](https://e.com then more", "See [docs](https://e.com then more",
+         "a destination followed by prose is no link");
+  const std::string stray = "Note [1 " + std::string(600, 'x');
+  expect(stray, stray, "a stray bracket far behind stops withholding");
+  expect(stray + " [docs]", stray + " ", "a stray bracket far behind does not swallow a new label");
+  expect(stray + " [docs](http", stray + " ", "a stray bracket far behind does not swallow a new link");
+  expect("[a](https://e.com/`q`) then `[b` c", "[a](https://e.com/`q`) then `[b` c",
+         "code spans after a skipped destination still count");
+  expect("\\`x` and `[b` c", "\\`x` and `", "an escaped backtick opens no code span");
+
+  // Review cases: references.
+  expect("[r]: https://e.com\n\nSee [docs][r]", "[r]: https://e.com\n\nSee [docs][r]", "full reference kept");
+  expect("[r]: https://e.com\n\n![logo][r]", "[r]: https://e.com\n\n![logo][r]", "reference image kept");
+  expect("[R  x]: https://e.com\n\nSee [docs][r x]", "[R  x]: https://e.com\n\nSee [docs][r x]",
+         "reference labels match case and space insensitively");
+  expect("[r]: https://e.com\n\nSee [r][]", "[r]: https://e.com\n\nSee [r][]", "collapsed reference kept");
+  expect("See [docs][nope]", "See [docs]", "an undefined reference may still become a link");
+
+  // Review cases: containers and other blocks.
+  expect("> ```md\n> ![a](https://e", "> ```md\n> ![a](https://e", "fence inside a quote holds code");
+  check(Markdown::renderableMarkdownForStreaming("> ```md\n> ![a](https://e", {}).endsInsideOpenCodeFence,
+        "quoted open fence flagged");
+  expect("> ```md\n> code\n\nAfter ![a](https://e", "> ```md\n> code\n\nAfter ",
+         "a quoted fence closes with its quote");
+  expect("- ```md\n  ![a](https://e", "- ```md\n  ![a](https://e", "fence inside a list item holds code");
+  expect("```\n$$\n```\n\nafter text\nmore", "```\n$$\n```\n\nafter text\nmore", "math marker inside a fence ignored");
+  expect("> $$\n> x", "", "quoted open math cut");
+  expect("<!--\n![a](https://e", "<!--\n![a](https://e", "html comment content kept");
+  expect("<video\n  src=\"https://e", "", "multi-line video tag still open: cut");
+  expect("Intro\n\n<video\n  src=\"u\">\n", "Intro\n\n<video\n  src=\"u\">\n",
+         "multi-line video complete (progressive)");
+  expect("Intro\n\n<video\n  src=\"u\">\n", "Intro\n\n", "multi-line video withheld (hidden)", H);
+
+  // Review cases: tables without outer pipes, quoted tables.
+  expect("a | b\n--|--\n1 | 2", "", "table without outer pipes withheld (hidden)", P, H);
+  expect("a | b\n--|--\n1 | 2", "a | b\n--|--\n1 | 2", "table without outer pipes kept (progressive)");
+  expect("a | b\n--|--\n1 ", "a | b\n--|--\n", "short row of a table without pipes trimmed");
+  expect("a | b", "a | b", "a lone line with a pipe is prose", P, H);
+  expect("> | a | b |\n> |---|---|\n> | 1 | 2 |", "", "quoted table withheld (hidden)", P, H);
+  expect("| a | b |\n|-", "", "delimiter row with too few cells is not a table yet");
+
   // Pre-existing rules keep their behaviour.
   expect("A\n\n| a | b |\n|---|---|\n| 1 |", "A\n\n| a | b |\n|---|---|\n", "incomplete table row trimmed");
   expect("A\n\n| a | b |\n|---|---|\n| 1 | 2 |", "A\n\n", "table withheld (hidden)", P, H);

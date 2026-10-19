@@ -3,7 +3,7 @@
 #include "BlockKinds.hpp"
 #include "MarkdownASTNode.hpp"
 #include <string>
-#include <unordered_set>
+#include <unordered_map>
 #include <vector>
 
 namespace Markdown {
@@ -26,6 +26,8 @@ struct BlockSlot {
   std::string altText; // the image's alt text or the link's label; empty for videos
   std::string title;   // empty for videos
   BlockSlotPlacement placement;
+  std::string occurrenceId;    // the image occurrence of an image block; empty otherwise
+  const MarkdownASTNode *node; // the paragraph or video node the slot replaces
 };
 
 struct ImageOccurrence {
@@ -39,22 +41,29 @@ struct ImageOccurrence {
 struct CollectedBlocks {
   std::vector<BlockSlot> slots;
   std::vector<ImageOccurrence> images;
+  // Indexes into slots and images by the node they describe (the paragraph or
+  // video a slot replaces, the Image node), valid while the tree lives.
+  std::unordered_map<const MarkdownASTNode *, size_t> slotByNode;
+  std::unordered_map<const MarkdownASTNode *, size_t> imageByNode;
 };
 
-// Attributes stamped on the AST by annotate().
+// Attributes the hosts add to converted nodes (AstOverlay.hpp).
 extern const char *const kBlockSlotIdAttribute;       // on the paragraph or video node a slot replaces
-extern const char *const kBlockSlotKindAttribute;     // "image" | "video"
+extern const char *const kBlockSlotKindAttribute;     // "image" | "video" | "link"
 extern const char *const kImageOccurrenceIdAttribute; // on every Image node
 
-// Document order. An id is "<kind>:<fnv1a64 of url, hex>:<n>". For a slot, n counts
-// earlier slots of the same kind and url; for an image occurrence, earlier images
-// of the same url. Slot ids therefore survive appends, edits elsewhere and inline
-// images being added or removed; occurrence ids survive appends and edits elsewhere.
+// Document order, without touching the tree. Ids are opaque to apps; inside they
+// are "<kind>:<hash>:<n>" for a slot and "img:<hash>:<n>" for an image
+// occurrence, where the hash covers the URL, alt text or label, and title, and n
+// counts earlier entries with the same hash. A block keeps its id while it is
+// unchanged, across appends, edits elsewhere and inline images coming and going;
+// only removing an identical earlier block shifts it.
 CollectedBlocks collect(const MarkdownASTNode &root);
 
-// One walk that stamps blockSlotId/blockSlotKind on the block nodes whose slot id
-// is in activeSlotIds and, when annotateImages, imageOccurrenceId on every Image.
-void annotate(MarkdownASTNode &root, const std::unordered_set<std::string> &activeSlotIds, bool annotateImages);
+// FNV-1a 64 of the bytes, as 16 lowercase hex digits; the web collector matches it.
+std::string fnv1a64Hex(const std::string &bytes);
+// What a slot or occurrence id hashes: the fields joined by U+001F.
+std::string blockIdentity(const std::string &url, const std::string &text, const std::string &title);
 
 const char *blockSlotKindName(BlockSlotKind kind);
 const char *blockSlotPlacementName(BlockSlotPlacement placement);

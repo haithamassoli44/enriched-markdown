@@ -1,24 +1,18 @@
 #include "BlockKinds.hpp"
+#include "TextScan.hpp"
+#include <unordered_map>
 
 namespace Markdown {
 
 namespace {
 
-bool isBlank(const std::string &text) {
-  for (char ch : text) {
-    if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\f' && ch != '\v')
-      return false;
-  }
-  return true;
-}
-
 // The stream may have stopped partway through `syntax` (`<vi` of `<video`).
-bool isPartial(const std::string &body, const std::string &syntax) {
-  return !body.empty() && body.size() < syntax.size() && syntax.compare(0, body.size(), body) == 0;
+bool isPartial(std::string_view body, std::string_view syntax) {
+  return !body.empty() && body.size() < syntax.size() && startsWith(syntax, body);
 }
 
 // `[label](url)` or `![alt](url)` at the start of body.
-BlockLineState bracketSyntaxState(const std::string &body) {
+BlockLineState bracketSyntaxState(std::string_view body) {
   return InlineSyntax::state(body, body[0] == '!' ? 1 : 0);
 }
 
@@ -35,10 +29,10 @@ const MarkdownASTNode *imageMedia(const MarkdownASTNode &node) {
   return onlyChildOfParagraph(node, NodeType::Image);
 }
 
-BlockLineState imageLineState(const std::string &body) {
+BlockLineState imageLineState(std::string_view body) {
   if (isPartial(body, "!["))
     return BlockLineState::Open;
-  return body.rfind("![", 0) == 0 ? bracketSyntaxState(body) : BlockLineState::None;
+  return startsWith(body, "![") ? bracketSyntaxState(body) : BlockLineState::None;
 }
 
 // ---- video: a `<video src>` block
@@ -47,12 +41,12 @@ const MarkdownASTNode *videoMedia(const MarkdownASTNode &node) {
   return node.type == NodeType::Video ? &node : nullptr;
 }
 
-BlockLineState videoLineState(const std::string &body) {
+BlockLineState videoLineState(std::string_view body) {
   if (isPartial(body, "<video"))
     return BlockLineState::Open;
-  if (body.rfind("<video", 0) != 0)
+  if (!startsWith(body, "<video"))
     return BlockLineState::None;
-  return body.find('>') == std::string::npos ? BlockLineState::Open : BlockLineState::Complete;
+  return body.find('>') == std::string_view::npos ? BlockLineState::Open : BlockLineState::Complete;
 }
 
 // ---- link: `[label](url)`, `<url>` or a bare URL on its own
@@ -61,14 +55,14 @@ const MarkdownASTNode *linkMedia(const MarkdownASTNode &node) {
   return onlyChildOfParagraph(node, NodeType::Link);
 }
 
-BlockLineState linkLineState(const std::string &body) {
-  if (body.rfind("[", 0) == 0) {
+BlockLineState linkLineState(std::string_view body) {
+  if (startsWith(body, "[")) {
     // Not a link: a task box, a footnote or a reference definition (`[id]: url`).
-    if (body.rfind("[ ]", 0) == 0 || body.rfind("[x]", 0) == 0 || body.rfind("[X]", 0) == 0 || body.rfind("[^", 0) == 0)
+    if (startsWith(body, "[ ]") || startsWith(body, "[x]") || startsWith(body, "[X]") || startsWith(body, "[^"))
       return BlockLineState::None;
     size_t open = body.find("](");
     size_t definition = body.find("]:");
-    if (definition != std::string::npos && (open == std::string::npos || definition < open))
+    if (definition != std::string_view::npos && (open == std::string_view::npos || definition < open))
       return BlockLineState::None;
     return bracketSyntaxState(body);
   }
@@ -76,14 +70,14 @@ BlockLineState linkLineState(const std::string &body) {
   // character, so it stays open until something follows it.
   if (isPartial(body, "<http"))
     return BlockLineState::Open;
-  if (body.rfind("<http", 0) == 0) {
+  if (startsWith(body, "<http")) {
     size_t close = body.find('>');
-    if (close == std::string::npos)
+    if (close == std::string_view::npos)
       return BlockLineState::Open;
-    return isBlank(body.substr(close + 1)) ? BlockLineState::Complete : BlockLineState::None;
+    return isBlankFrom(body, close + 1) ? BlockLineState::Complete : BlockLineState::None;
   }
-  if (body.rfind("http://", 0) == 0 || body.rfind("https://", 0) == 0 || body.rfind("www.", 0) == 0)
-    return body.find_first_of(" \t") == std::string::npos ? BlockLineState::Open : BlockLineState::None;
+  if (startsWith(body, "http://") || startsWith(body, "https://") || startsWith(body, "www."))
+    return body.find_first_of(" \t") == std::string_view::npos ? BlockLineState::Open : BlockLineState::None;
   return BlockLineState::None;
 }
 
@@ -91,64 +85,91 @@ BlockLineState linkLineState(const std::string &body) {
 
 namespace InlineSyntax {
 
-bool isEscaped(const std::string &text, size_t index) {
+bool isEscaped(std::string_view text, size_t index) {
   size_t backslashes = 0;
   while (index > backslashes && text[index - backslashes - 1] == '\\')
     backslashes++;
   return backslashes % 2 == 1;
 }
 
-bool insideCodeSpan(const std::string &text, size_t index) {
-  size_t openRun = 0; // length of the backtick run that opened the current span
-  size_t i = 0;
-  while (i < index) {
+CodeSpans::CodeSpans(std::string_view text) {
+  struct Run {
+    size_t start;
+    size_t length;
+  };
+  std::vector<Run> runs;
+  for (size_t i = 0; i < text.size();) {
     if (text[i] != '`') {
       i++;
       continue;
     }
-    size_t run = 0;
-    while (i < text.size() && text[i] == '`') {
-      run++;
+    // An escaped first backtick is literal; the rest of the run still counts.
+    size_t start = isEscaped(text, i) ? i + 1 : i;
+    while (i < text.size() && text[i] == '`')
       i++;
-    }
-    if (openRun == 0)
-      openRun = run;
-    else if (run == openRun)
-      openRun = 0;
+    if (i > start)
+      runs.push_back({start, i - start});
   }
-  return openRun != 0;
+  // The next run of the same length after each run, found right to left.
+  std::vector<size_t> next(runs.size(), runs.size());
+  std::unordered_map<size_t, size_t> lastOfLength;
+  for (size_t r = runs.size(); r-- > 0;) {
+    auto found = lastOfLength.find(runs[r].length);
+    if (found != lastOfLength.end())
+      next[r] = found->second;
+    lastOfLength[runs[r].length] = r;
+  }
+  // A run opens a span when a later run of its length closes it; the runs in
+  // between are inside the span.
+  for (size_t r = 0; r < runs.size();) {
+    if (next[r] == runs.size()) {
+      r++;
+      continue;
+    }
+    const Run &close = runs[next[r]];
+    ranges.emplace_back(runs[r].start, close.start + close.length);
+    r = next[r] + 1;
+  }
 }
 
-size_t labelEnd(const std::string &text, size_t bracket) {
+size_t CodeSpans::Cursor::spanEndAt(size_t index) {
+  while (next_ != end_ && next_->second <= index)
+    ++next_;
+  return next_ != end_ && next_->first <= index ? next_->second : std::string_view::npos;
+}
+
+size_t labelEnd(std::string_view text, size_t bracket, const CodeSpans &spans) {
+  CodeSpans::Cursor code(spans);
   size_t depth = 0;
   for (size_t i = bracket; i < text.size(); i++) {
+    size_t codeEnd = code.spanEndAt(i);
+    if (codeEnd != std::string_view::npos) {
+      i = codeEnd - 1;
+      continue;
+    }
     char ch = text[i];
     if (ch == '\\') {
       i++; // the escaped character is literal
       continue;
     }
-    if (ch != '[' && ch != ']')
-      continue;
-    if (insideCodeSpan(text, i))
-      continue;
     if (ch == '[') {
       depth++;
-    } else if (--depth == 0) {
+    } else if (ch == ']' && --depth == 0) {
       return i;
     }
   }
-  return std::string::npos;
+  return std::string_view::npos;
 }
 
 namespace {
 
-bool isSpace(char ch) {
+bool isSpaceOrTab(char ch) {
   return ch == ' ' || ch == '\t';
 }
 
 // The index just past a title that opens at `i` with `open` (`"`, `'` or `(`),
 // or npos while its closing character has not arrived.
-size_t titleEnd(const std::string &text, size_t i, char open) {
+size_t titleEnd(std::string_view text, size_t i, char open) {
   char close = open == '(' ? ')' : open;
   for (i++; i < text.size(); i++) {
     if (text[i] == '\\') {
@@ -158,15 +179,16 @@ size_t titleEnd(const std::string &text, size_t i, char open) {
     if (text[i] == close)
       return i + 1;
   }
-  return std::string::npos;
+  return std::string_view::npos;
 }
 
 } // namespace
 
-size_t destinationEnd(const std::string &text, size_t openParen) {
+size_t destinationEnd(std::string_view text, size_t openParen) {
   const size_t n = text.size();
+  const size_t npos = std::string_view::npos;
   size_t i = openParen + 1;
-  while (i < n && isSpace(text[i]))
+  while (i < n && isSpaceOrTab(text[i]))
     i++;
   if (i < n && text[i] == '<') {
     for (i++; i < n && text[i] != '>'; i++) {
@@ -174,7 +196,7 @@ size_t destinationEnd(const std::string &text, size_t openParen) {
         i++;
     }
     if (i >= n)
-      return std::string::npos;
+      return npos;
     i++;
   } else {
     size_t depth = 0;
@@ -184,7 +206,7 @@ size_t destinationEnd(const std::string &text, size_t openParen) {
         i += 2;
         continue;
       }
-      if (isSpace(ch) || (ch == ')' && depth == 0))
+      if (isSpaceOrTab(ch) || ch == '\n' || (ch == ')' && depth == 0))
         break;
       if (ch == '(')
         depth++;
@@ -194,37 +216,41 @@ size_t destinationEnd(const std::string &text, size_t openParen) {
     }
   }
   if (i >= n)
-    return std::string::npos; // still typing the destination
+    return npos; // still typing the destination
   size_t afterDestination = i;
-  while (i < n && isSpace(text[i]))
+  while (i < n && (isSpaceOrTab(text[i]) || text[i] == '\n'))
     i++;
   if (i >= n)
-    return std::string::npos; // `[a](u ` may still get a title
+    return npos; // `[a](u ` may still get a title
   if (text[i] == ')')
     return i;
   // A title needs whitespace before it and one of three delimiters.
   if (i == afterDestination || (text[i] != '"' && text[i] != '\'' && text[i] != '('))
-    return std::string::npos;
+    return kInvalid;
   i = titleEnd(text, i, text[i]);
-  if (i == std::string::npos)
-    return std::string::npos; // `[a](u "t` still typing the title
-  while (i < n && isSpace(text[i]))
+  if (i == npos)
+    return npos; // `[a](u "t` still typing the title
+  while (i < n && (isSpaceOrTab(text[i]) || text[i] == '\n'))
     i++;
-  return i < n && text[i] == ')' ? i : std::string::npos;
+  if (i >= n)
+    return npos;
+  return text[i] == ')' ? i : kInvalid;
 }
 
-BlockLineState state(const std::string &text, size_t bracket) {
-  size_t close = labelEnd(text, bracket);
-  if (close == std::string::npos)
+BlockLineState state(std::string_view text, size_t bracket) {
+  size_t close = labelEnd(text, bracket, CodeSpans(text));
+  if (close == std::string_view::npos)
     return BlockLineState::Open; // `[label` still typing
-  if (isBlank(text.substr(close + 1)))
+  if (isBlankFrom(text, close + 1))
     return BlockLineState::Open; // `[label]`: the `(` may be next
   if (text[close + 1] != '(')
     return BlockLineState::None; // `[INFO] done`: prose
   size_t end = destinationEnd(text, close + 1);
-  if (end == std::string::npos)
+  if (end == std::string_view::npos)
     return BlockLineState::Open; // `[label](https://e` still typing
-  return isBlank(text.substr(end + 1)) ? BlockLineState::Complete : BlockLineState::None;
+  if (end == kInvalid)
+    return BlockLineState::None; // `[label](u then prose`
+  return isBlankFrom(text, end + 1) ? BlockLineState::Complete : BlockLineState::None;
 }
 
 } // namespace InlineSyntax

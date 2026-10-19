@@ -3,6 +3,9 @@
 #include "MarkdownASTNode.hpp"
 #include <cstddef>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace Markdown {
 
@@ -29,7 +32,7 @@ struct BlockKind {
   // Whether the walk continues into the block's children (for occurrences inside it).
   bool walkChildren;
   // Classifies a streamed line whose quote markers are already stripped.
-  BlockLineState (*lineState)(const std::string &body);
+  BlockLineState (*lineState)(std::string_view body);
 };
 
 constexpr size_t kBlockKindCount = 3;
@@ -42,23 +45,41 @@ const BlockKind *blockKindNamed(const std::string &name);
 // filter's tail scanner, so both read `[label](destination)` the same way.
 namespace InlineSyntax {
 // Whether the character at `index` is escaped by an odd run of backslashes.
-bool isEscaped(const std::string &text, size_t index);
-// Whether `index` falls inside a code span (backtick runs of equal length).
-bool insideCodeSpan(const std::string &text, size_t index);
+bool isEscaped(std::string_view text, size_t index);
+// The code spans of `text` (backtick runs of equal length), in order, as
+// [start, end) byte ranges, found in one pass.
+struct CodeSpans {
+  explicit CodeSpans(std::string_view text);
+  std::vector<std::pair<size_t, size_t>> ranges;
+
+  // Walks the spans alongside a left-to-right scan: the end of the span that
+  // holds `index`, or npos when it holds none. Indices must not decrease.
+  class Cursor {
+  public:
+    explicit Cursor(const CodeSpans &spans) : next_(spans.ranges.begin()), end_(spans.ranges.end()) {}
+    size_t spanEndAt(size_t index);
+
+  private:
+    std::vector<std::pair<size_t, size_t>>::const_iterator next_;
+    std::vector<std::pair<size_t, size_t>>::const_iterator end_;
+  };
+};
 // The `]` closing the label that opens at `bracket`, with nested brackets
 // balanced the way CommonMark reads them (`[![thumb](u)]`), skipping escapes
 // and code spans; npos when it has not arrived.
-size_t labelEnd(const std::string &text, size_t bracket);
+size_t labelEnd(std::string_view text, size_t bracket, const CodeSpans &spans);
 // The `)` closing a `(destination "title")` that opens at `openParen` (the `(`
 // after `]`): the destination may be `<pointy>` or hold balanced parentheses,
 // the optional title is quoted or parenthesised, and escapes are honoured
-// throughout; npos when it has not arrived.
-size_t destinationEnd(const std::string &text, size_t openParen);
+// throughout; npos when it has not arrived, kInvalid when what follows can no
+// longer close it (`[a](u then prose`).
+constexpr size_t kInvalid = std::string_view::npos - 1;
+size_t destinationEnd(std::string_view text, size_t openParen);
 // How far a `[label](destination)` or `![alt](destination)` that starts at
 // `bracket` (the `[`) has streamed in: Open while its syntax can still close,
 // Complete when it closed and only whitespace follows, None when it is prose
 // (`[INFO] done`, or text continuing after a closed link).
-BlockLineState state(const std::string &text, size_t bracket);
+BlockLineState state(std::string_view text, size_t bracket);
 } // namespace InlineSyntax
 
 } // namespace Markdown

@@ -29,8 +29,8 @@ struct StreamingFilterResult {
 //     Progressive trims an incomplete trailing row;
 //   * fenced code: Hidden cuts an open fence, Progressive keeps it and filters
 //     only the text before it;
-//   * media (an image paragraph, a link-only paragraph or a `<video>` block on
-//     the last line, the blocks a renderer can replace): Hidden withholds it
+//   * media (a trailing image paragraph, link-only paragraph or `<video>`
+//     block, the blocks a renderer can replace): Hidden withholds it
 //     until a blank line or another block follows, Progressive withholds it only
 //     while its syntax is still open;
 //   * an inline image or link still being typed at the end of the last

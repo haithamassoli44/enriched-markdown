@@ -1,15 +1,15 @@
 /*
  * Checks the block slot collector: which blocks are eligible, the id scheme and
- * its stability under appends and inline edits, the shared hash fixture, and
- * the attributes annotate() stamps. See scripts/test-core-parser.sh.
+ * its stability under appends and inline edits, and the shared hash fixture. See
+ * scripts/test-core-parser.sh.
  */
 #include "BlockSlots.hpp"
 #include "MD4CParser.hpp"
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
-#include <unordered_set>
 
 namespace {
 
@@ -27,34 +27,12 @@ std::shared_ptr<Markdown::MarkdownASTNode> parse(const std::string &markdown) {
   return parser.parse(markdown, Markdown::Md4cFlags{}, true);
 }
 
-const Markdown::MarkdownASTNode *findWithAttribute(const Markdown::MarkdownASTNode &node, const std::string &key) {
-  if (node.attributes.count(key))
-    return &node;
-  for (const auto &child : node.children) {
-    if (const auto *found = findWithAttribute(*child, key))
-      return found;
-  }
-  return nullptr;
-}
-
 std::string suffix(const std::string &id) {
   return id.substr(id.rfind(':'));
 }
 
 size_t slotCount(const std::string &markdown) {
   return Markdown::collect(*parse(markdown)).slots.size();
-}
-
-// The hash part of an id for a standalone image paragraph of `url`.
-std::string hashOf(const std::string &url) {
-  auto root = parse("![x](" + url + ")\n");
-  auto slots = Markdown::collect(*root).slots;
-  if (slots.size() != 1)
-    return "";
-  std::string id = slots[0].id;
-  size_t first = id.find(':');
-  size_t last = id.rfind(':');
-  return id.substr(first + 1, last - first - 1);
 }
 
 } // namespace
@@ -104,9 +82,14 @@ int main(int argc, char **argv) {
               slots[5].title == "application/pdf" && slots[5].id.rfind("link:", 0) == 0,
           "the file link is a link block with label and title");
     check(slots[0].id.rfind("image:", 0) == 0 && suffix(slots[0].id) == ":0", "first a.png slot is 0");
-    // Slot ids count slots only: the inline a.png in between does not shift the quoted one.
-    check(suffix(slots[2].id) == ":1", "quoted a.png is slot 1, got " + slots[2].id);
-    check(suffix(slots[3].id) == ":0" && suffix(slots[4].id) == ":1", "videos count per url");
+    // The hash covers alt and title, so a.png with other text is another block.
+    check(slots[2].id != slots[0].id && suffix(slots[2].id) == ":0",
+          "quoted a.png has its own hash, got " + slots[2].id);
+    check(suffix(slots[3].id) == ":0" && suffix(slots[4].id) == ":1", "identical videos count up");
+    check(slots[0].occurrenceId == images[0].id && slots[2].occurrenceId == images[4].id,
+          "image blocks name their occurrence");
+    check(slots[1].occurrenceId.empty() && slots[3].occurrenceId.empty(), "other blocks name no occurrence");
+    check(collected.slotByNode.at(root->children[1].get()) == 0, "a slot is indexed by the paragraph it replaces");
   }
 
   check(images.size() == 7, "seven image occurrences (got " + std::to_string(images.size()) + ")");
@@ -118,9 +101,20 @@ int main(int argc, char **argv) {
     check(images[4].placement == ImagePlacement::Blockquote, "image 4 placement blockquote");
     check(images[5].placement == ImagePlacement::Table, "image 5 placement table");
     check(images[6].placement == ImagePlacement::List, "a quote inside a list item is list placement");
-    // Occurrence ids count every image of the url: root a.png 0, inline 1, quoted 2, listed quote 3.
-    check(suffix(images[4].id) == ":2" && suffix(images[6].id) == ":3", "occurrence ids count all images");
+    check(images[0].id.rfind("img:", 0) == 0, "occurrence ids have their own prefix");
+    for (const auto &slot : slots) {
+      for (const auto &image : images)
+        check(slot.id != image.id, "a slot id never equals an occurrence id: " + slot.id);
+    }
   }
+
+  // Only identical blocks count up, so removing a different earlier one keeps the id.
+  auto twins = Markdown::collect(*parse("![a](u)\n\n![b](u)\n\n![a](u)\n")).slots;
+  auto withoutB = Markdown::collect(*parse("![a](u)\n\n![a](u)\n")).slots;
+  check(twins.size() == 3 && suffix(twins[2].id) == ":1" && twins[1].id != twins[0].id, "identical blocks count up");
+  check(withoutB.size() == 2 && withoutB[1].id == twins[2].id, "removing a different block keeps later ids");
+  auto withoutFirst = Markdown::collect(*parse("![b](u)\n\n![a](u)\n")).slots;
+  check(withoutFirst.size() == 2 && withoutFirst[0].id == twins[1].id, "the other block keeps its id");
 
   // Appending content keeps earlier ids.
   auto longerSlots = Markdown::collect(*parse(doc + "\n![Tail](https://e.com/a.png)\n")).slots;
@@ -148,38 +142,6 @@ int main(int argc, char **argv) {
   check(slotCount("See [docs](https://e.com)\n") == 0, "a link inside text is no slot");
   check(slotCount("- [docs](https://e.com)\n") == 0, "a link in a list item is no slot");
 
-  // Annotation stamps only the active ids, on the block node, and image ids on demand.
-  std::unordered_set<std::string> active{slots[0].id, slots[4].id};
-  Markdown::annotate(*root, active, false);
-  int stamped = 0;
-  for (const auto &child : root->children) {
-    auto it = child->attributes.find(Markdown::kBlockSlotIdAttribute);
-    if (it == child->attributes.end())
-      continue;
-    stamped++;
-    if (child->type == Markdown::NodeType::Paragraph) {
-      check(it->second == slots[0].id, "the image paragraph carries the slot id");
-      check(child->attributes.at(Markdown::kBlockSlotKindAttribute) == "image", "image kind attribute");
-    } else {
-      check(child->type == Markdown::NodeType::Video && it->second == slots[4].id, "the video carries the slot id");
-      check(child->attributes.at(Markdown::kBlockSlotKindAttribute) == "video", "video kind attribute");
-    }
-  }
-  check(stamped == 2, "exactly the active root blocks are stamped (got " + std::to_string(stamped) + ")");
-  check(findWithAttribute(*root, Markdown::kImageOccurrenceIdAttribute) == nullptr, "no image ids unless asked for");
-
-  Markdown::annotate(*root, {}, true);
-  const auto *image = findWithAttribute(*root, Markdown::kImageOccurrenceIdAttribute);
-  check(image != nullptr && image->type == Markdown::NodeType::Image &&
-            image->attributes.at(Markdown::kImageOccurrenceIdAttribute) == images[0].id,
-        "images carry their occurrence id");
-
-  // A link block stamps "link" on its paragraph.
-  auto linkRoot = parse("[Q3 report.pdf](https://e.com/q3.pdf)\n");
-  auto linkSlots = Markdown::collect(*linkRoot).slots;
-  Markdown::annotate(*linkRoot, {linkSlots[0].id}, false);
-  check(linkRoot->children[0]->attributes.at(Markdown::kBlockSlotKindAttribute) == "link", "link kind attribute");
-
   // The shared hash fixture pins the id hash for the web twin.
   if (argc > 1) {
     std::ifstream fixture(argv[1]);
@@ -191,11 +153,34 @@ int main(int argc, char **argv) {
         continue;
       size_t tab = line.find('\t');
       std::string url = line.substr(0, tab);
+      for (size_t at = url.find("\\u001f"); at != std::string::npos; at = url.find("\\u001f", at))
+        url.replace(at, 6, "\x1f");
       std::string expected = line.substr(tab + 1);
-      check(hashOf(url) == expected, "hash of '" + url + "' is " + expected + " (got " + hashOf(url) + ")");
+      std::string got = Markdown::fnv1a64Hex(url);
+      check(got == expected, "hash of '" + url + "' is " + expected + " (got " + got + ")");
       vectors++;
     }
     check(vectors > 0, "fixture has vectors");
+  }
+
+  // A shared document pins whole ids, text extraction included, for the web twin.
+  if (argc > 3) {
+    std::ifstream document(argv[2]);
+    std::stringstream markdown;
+    markdown << document.rdbuf();
+    auto shared = Markdown::collect(*parse(markdown.str()));
+    std::vector<std::string> got;
+    for (const auto &slot : shared.slots)
+      got.push_back(slot.id);
+    for (const auto &image : shared.images)
+      got.push_back(image.id);
+    std::ifstream expectedFile(argv[3]);
+    std::vector<std::string> expected;
+    for (std::string line; std::getline(expectedFile, line);) {
+      if (!line.empty() && line[0] != '#')
+        expected.push_back(line);
+    }
+    check(!expected.empty() && got == expected, "the shared document collects the pinned ids");
   }
 
   if (failures == 0) {

@@ -14,17 +14,6 @@ namespace {
 const std::string kUrlAttribute = "url";
 const std::string kTitleAttribute = "title";
 
-std::string fnv1a64Hex(const std::string &text) {
-  uint64_t hash = 14695981039346656037ULL;
-  for (unsigned char byte : text) {
-    hash ^= byte;
-    hash *= 1099511628211ULL;
-  }
-  char buffer[17];
-  std::snprintf(buffer, sizeof(buffer), "%016llx", static_cast<unsigned long long>(hash));
-  return buffer;
-}
-
 std::string attribute(const MarkdownASTNode &node, const std::string &key) {
   auto it = node.attributes.find(key);
   return it == node.attributes.end() ? std::string() : it->second;
@@ -77,11 +66,11 @@ ImagePlacement imagePlacement(BlockSlotPlacement placement) {
   }
 }
 
-// Ids count earlier occurrences of the same base, in document order.
+// Ids count earlier entries with the same base, in document order.
 class IdCounter {
 public:
-  std::string next(const char *kind, const std::string &url) {
-    std::string base = std::string(kind) + ':' + fnv1a64Hex(url);
+  std::string next(const char *prefix, const std::string &identity) {
+    std::string base = std::string(prefix) + ':' + fnv1a64Hex(identity);
     unsigned &count = counts_[base];
     std::string id = base + ':' + std::to_string(count);
     count++;
@@ -98,38 +87,37 @@ struct Ancestors {
   bool inList = false;
 };
 
-// Walks the tree once, collecting slots and image occurrences. With a non-null
-// activeSlotIds or annotateImages it also stamps the attributes; the collect()
-// entry point passes neither and never writes.
+// Walks the tree once, collecting slots and image occurrences.
 struct Visitor {
   IdCounter slotIds;
   IdCounter imageIds;
   CollectedBlocks collected;
-  const std::unordered_set<std::string> *activeSlotIds = nullptr;
-  bool annotateImages = false;
 
-  void recordImage(MarkdownASTNode &image, ImagePlacement placement) {
+  const ImageOccurrence &recordImage(const MarkdownASTNode &image, ImagePlacement placement) {
     std::string url = attribute(image, kUrlAttribute);
-    std::string id = imageIds.next("image", url);
-    collected.images.push_back({id, url, altText(image), attribute(image, kTitleAttribute), placement});
-    if (annotateImages) {
-      image.setAttribute(kImageOccurrenceIdAttribute, id);
-    }
+    std::string alt = altText(image);
+    std::string title = attribute(image, kTitleAttribute);
+    std::string id = imageIds.next("img", blockIdentity(url, alt, title));
+    collected.imageByNode[&image] = collected.images.size();
+    collected.images.push_back({std::move(id), std::move(url), std::move(alt), std::move(title), placement});
+    return collected.images.back();
   }
 
-  void recordSlot(MarkdownASTNode &block, const BlockKind &kind, const MarkdownASTNode &media,
+  void recordSlot(const MarkdownASTNode &block, const BlockKind &kind, const MarkdownASTNode &media,
                   BlockSlotPlacement placement) {
     std::string url = attribute(media, kUrlAttribute);
-    std::string id = slotIds.next(kind.name, url);
-    collected.slots.push_back({id, kind.kind, url, kind.hasText ? altText(media) : std::string(),
-                               kind.hasText ? attribute(media, kTitleAttribute) : std::string(), placement});
-    if (activeSlotIds && activeSlotIds->count(id)) {
-      block.setAttribute(kBlockSlotIdAttribute, id);
-      block.setAttribute(kBlockSlotKindAttribute, kind.name);
-    }
+    std::string text = kind.hasText ? altText(media) : std::string();
+    std::string title = kind.hasText ? attribute(media, kTitleAttribute) : std::string();
+    std::string id = slotIds.next(kind.name, blockIdentity(url, text, title));
+    std::string occurrenceId;
+    if (kind.isImageOccurrence)
+      occurrenceId = recordImage(media, imagePlacement(placement)).id;
+    collected.slotByNode[&block] = collected.slots.size();
+    collected.slots.push_back({std::move(id), kind.kind, std::move(url), std::move(text), std::move(title), placement,
+                               std::move(occurrenceId)});
   }
 
-  void visit(MarkdownASTNode &node, NodeType parentType, Ancestors ancestors) {
+  void visit(const MarkdownASTNode &node, NodeType parentType, Ancestors ancestors) {
     if (node.type == NodeType::Image) {
       recordImage(node, ancestors.inLink    ? ImagePlacement::Link
                         : ancestors.inTable ? ImagePlacement::Table
@@ -143,11 +131,7 @@ struct Visitor {
         const MarkdownASTNode *media = kind.media(node);
         if (media == nullptr)
           continue;
-        BlockSlotPlacement placement = slotPlacement(parentType);
-        recordSlot(node, kind, *media, placement);
-        if (kind.isImageOccurrence) {
-          recordImage(*const_cast<MarkdownASTNode *>(media), imagePlacement(placement));
-        }
+        recordSlot(node, kind, *media, slotPlacement(parentType));
         if (!kind.walkChildren)
           return;
         break;
@@ -170,33 +154,35 @@ struct Visitor {
       default:
         break;
     }
-    for (auto &child : node.children) {
+    for (const auto &child : node.children) {
       visit(*child, node.type, childAncestors);
     }
   }
 };
 
-CollectedBlocks walk(MarkdownASTNode &root, const std::unordered_set<std::string> *activeSlotIds, bool annotateImages) {
+} // namespace
+
+CollectedBlocks collect(const MarkdownASTNode &root) {
   Visitor visitor;
-  visitor.activeSlotIds = activeSlotIds;
-  visitor.annotateImages = annotateImages;
-  for (auto &child : root.children) {
+  for (const auto &child : root.children) {
     visitor.visit(*child, root.type, Ancestors{});
   }
   return std::move(visitor.collected);
 }
 
-} // namespace
-
-CollectedBlocks collect(const MarkdownASTNode &root) {
-  // The read-only walk never calls setAttribute (both flags off).
-  return walk(const_cast<MarkdownASTNode &>(root), nullptr, false);
+std::string fnv1a64Hex(const std::string &bytes) {
+  uint64_t hash = 14695981039346656037ULL;
+  for (unsigned char byte : bytes) {
+    hash ^= byte;
+    hash *= 1099511628211ULL;
+  }
+  char buffer[17];
+  std::snprintf(buffer, sizeof(buffer), "%016llx", static_cast<unsigned long long>(hash));
+  return buffer;
 }
 
-void annotate(MarkdownASTNode &root, const std::unordered_set<std::string> &activeSlotIds, bool annotateImages) {
-  if (activeSlotIds.empty() && !annotateImages)
-    return;
-  walk(root, activeSlotIds.empty() ? nullptr : &activeSlotIds, annotateImages);
+std::string blockIdentity(const std::string &url, const std::string &text, const std::string &title) {
+  return url + '\x1f' + text + '\x1f' + title;
 }
 
 const char *blockSlotKindName(BlockSlotKind kind) {
