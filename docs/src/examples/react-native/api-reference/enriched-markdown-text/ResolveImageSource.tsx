@@ -23,9 +23,9 @@ export default function App() {
 
   const resolveImageSource = async (image: MarkdownImageOccurrence) => {
     const photoId = image.url.replace('app://photos/', '');
-    // Return null to load the Markdown URL as-is; while the promise is pending
+    // Return undefined to load the Markdown URL as-is; while the promise is pending
     // the image keeps its placeholder and nothing is requested.
-    if (!image.url.startsWith('app://')) return null;
+    if (!image.url.startsWith('app://')) return undefined;
     return {
       uri: await signUrl(photoId),
       headers: { Authorization: 'Bearer demo' },

@@ -51,9 +51,9 @@ export default function App() {
         markdown={markdown}
         markdownStyle={markdownStyle}
         renderers={{
-          // Return null to keep the native image for some blocks.
+          // Return undefined to keep the native image for some blocks.
           image: block =>
-            block.placement === 'admonition' ? null : <Figure block={block} />,
+            block.placement === 'admonition' ? undefined : <Figure block={block} />,
         }}
       />
     </View>

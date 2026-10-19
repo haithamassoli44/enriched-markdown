@@ -312,7 +312,7 @@ interface StreamingConfig {
   - `'progressive'` **(default)** streams the code in with a visible but non-interactive header and defers syntax highlighting until the closing fence arrives.
   - `'hidden'` withholds the block until it is complete.
 - `mediaMode`
-  - `'progressive'` **(default)** shows a trailing image paragraph or `<video>` block as soon as its syntax is complete (the closing `)` or `>`); until then the partial line is withheld instead of rendering as text.
+  - `'progressive'` **(default)** shows a trailing image paragraph, link paragraph or `<video>` block as soon as its syntax is complete (the closing `)` or `>`); until then the partial line is withheld instead of rendering as text. A bare URL on its own line can always grow, so it is withheld until the next line arrives.
   - `'hidden'` withholds the block until a blank line or another block follows it, like `tableMode: 'hidden'`, so it never appears before the content after it. Applies to native images and to blocks drawn by [`renderers`](#renderers) alike.
 
 An unterminated block-math (`$$`) block is also withheld until its closing `$$` arrives. That behavior is unconditional and has no key here.
@@ -342,35 +342,36 @@ HTTP headers attached to remote image requests, e.g. a `Referer` required by CDN
 
 ### `renderers`
 
-React replacements for block media, keyed by kind. A renderer receives the block and returns the element to show in its place, or `null`/`undefined` to keep the native rendering. The element is laid out by React Native at the block's width and must have an intrinsic height; the host reserves exactly that height, so the Markdown around it stays native and keeps its position, selection and accessibility. See [Custom block renderers](/react-native/guides/custom-block-renderers) for the layout model and streaming behavior.
+Functions that return React elements to stand in for whole blocks, keyed by kind. The guide [Custom block renderers](/react-native/guides/custom-block-renderers) explains layout, streaming and examples.
 
-Applies to a paragraph whose only content is an image, a paragraph whose only content is a link (a `[label](url)`, an autolink or a bare URL on its own line) and to `<video src="...">` blocks, directly in the document, a blockquote or an admonition that is not itself inside a list. Images and links in lists, tables, headings and running text stay native. A link block that no renderer claims stays a native tappable link, so a `link` renderer can pick by URL and return `null` for the rest.
-
-A renderer runs once per block and again only when that block or any renderer function changes, so a streaming append does not re-render the blocks already shown. Keep the functions stable with `useCallback`. A renderer that throws, or returns a string or number (which cannot be a child of the native slot), keeps the native block until it runs again and warns in development.
-
-Only applies when `flavor="github"`. Needs the New Architecture.
+- **Which blocks:** a paragraph that is only an image (`image`), a paragraph that is only a link, autolink or bare URL (`link`), and a `<video src="...">` block (`video`). The block must sit directly in the document, a blockquote or an admonition, not in a list. Images and links elsewhere stay native.
+- **Return value:** an element replaces the block; `undefined` (or no return) keeps the native block. A renderer that throws, or returns text, keeps the native block and warns in development.
+- **Size:** the element needs an intrinsic height; the host sets the width. See [Sizing your element](/react-native/guides/custom-block-renderers#sizing-your-element).
+- **Calls:** once per block, and again only when that block or a renderer function changes. Keep the functions stable with `useCallback`. A renderer is a plain function, not a component, so keep hooks inside the component it returns.
+- **Presses:** the element handles its own. [`onImagePress`](#onimagepress), [`onLinkPress`](#onlinkpress), [`onLinkLongPress`](#onlinklongpress) and the [link menu](#linkcontextmenuitems) do not fire for a replaced block.
+- **Flavor:** `flavor="github"` only.
 
 <PropInfo type="MarkdownRenderers" />
 
 ```ts
 interface MarkdownRenderers {
-  image?: (block: MarkdownImageBlock) => ReactNode;
-  video?: (block: MarkdownVideoBlock) => ReactNode;
-  link?: (block: MarkdownLinkBlock) => ReactNode;
+  image?: (block: MarkdownImageBlock) => ReactElement | undefined;
+  video?: (block: MarkdownVideoBlock) => ReactElement | undefined;
+  link?: (block: MarkdownLinkBlock) => ReactElement | undefined;
 }
 
+// The container the block sits in. Inside a blockquote or an admonition the
+// block is narrower and indented.
 type MarkdownBlockPlacement = 'root' | 'blockquote' | 'admonition';
 
 interface MarkdownImageBlock {
   kind: 'image';
-  // "image:<hash of the URL as written>:<n>", n counting earlier blocks with the
-  // same URL: stable across streaming appends, edits elsewhere and inline images
-  // coming and going. Safe as a React key.
-  id: string;
+  id: string; // opaque, stable while the block is unchanged; safe as a React key
   url: string;
-  altText: string; // "" when the image has no alt text
-  title: string; // "" when the image has no title
+  altText: string; // "" when there is none
+  title: string; // "" when there is none
   placement: MarkdownBlockPlacement;
+  occurrenceId: string; // this image's MarkdownImageOccurrence id (resolveImageSource)
 }
 
 interface MarkdownVideoBlock {
@@ -389,6 +390,7 @@ interface MarkdownLinkBlock {
   placement: MarkdownBlockPlacement;
 }
 
+// Any of the three, for code that handles every kind.
 type MarkdownBlock = MarkdownImageBlock | MarkdownVideoBlock | MarkdownLinkBlock;
 ```
 
@@ -396,26 +398,30 @@ type MarkdownBlock = MarkdownImageBlock | MarkdownVideoBlock | MarkdownLinkBlock
 
 ### `resolveImageSource`
 
-Chooses the request made for each image instead of its Markdown URL, e.g. a signed URL or per-image headers. Called once per image occurrence id for the lifetime of the component, including images in lists, tables, blockquotes and links; a streaming append or an edit elsewhere only asks about the new images, and earlier results stay applied. Return a source, a promise of one, or `null`/`undefined` to load the original URL. While a promise is pending, and when it rejects or resolves to an empty `uri`, the image keeps its placeholder and the original URL is not requested.
+Chooses the request made for an image instead of its Markdown URL, such as a signed URL or per-image headers. See [Signed and authenticated images](/react-native/guides/custom-block-renderers#signed-and-authenticated-images) for an example.
 
-The function is read like an event handler: passing a new function does not resolve again, so an inline arrow is fine. To start over (after a token refresh, say), remount the component with a `key`.
+- **Which images:** every image, including those in lists, tables, blockquotes and links.
+- **Return value:** a source, a promise of one, or `undefined` (or no return) to load the Markdown URL. Until it answers, and when a promise rejects or resolves to an empty `uri`, the image keeps its placeholder and the Markdown URL is not requested.
+- **Calls:** once per image while it stays in the document, after rendering, never during it. A streaming append only asks about new images; an edited image is asked about again. Passing a new function does not resolve again, so an inline arrow is fine. Remount with a `key` to start over, for example after a token refresh.
+- **Headers:** merge over [`imageRequestHeaders`](#imagerequestheaders) (case-insensitive names) and take part in the [image cache identity](/react-native/guides/image-caching).
+- **Unchanged elsewhere:** events, copy actions and [`renderers`](#renderers) keep reporting the Markdown URL.
+- **Flavor:** `flavor="github"` only.
 
-Per-image headers merge over [`imageRequestHeaders`](#imagerequestheaders) (case-insensitive names) and take part in the [image cache identity](/react-native/guides/image-caching). Events, copy actions and [`renderers`](#renderers) keep reporting the Markdown URL.
-
-Only applies when `flavor="github"`. Needs the New Architecture.
-
-<PropInfo type="(image: MarkdownImageOccurrence) => MarkdownImageSource | null | undefined | Promise<MarkdownImageSource | null | undefined>" />
+<PropInfo type="(image: MarkdownImageOccurrence) => MarkdownImageSource | undefined | Promise<MarkdownImageSource | undefined>" />
 
 ```ts
 interface MarkdownImageOccurrence {
-  // "image:<hash of the URL as written>:<n>", n counting every earlier image with
-  // the same URL. Distinct from the block id a renderer sees for the same image.
-  id: string;
+  id: string; // opaque, stable while the image is unchanged; never equal to a block id
   url: string;
   altText: string;
   title: string;
-  placement: 'root' | 'blockquote' | 'admonition' | 'inline' | 'list' | 'table' | 'link';
+  placement: MarkdownImagePlacement;
 }
+
+// root, blockquote, admonition: an image paragraph (a block `renderers` can replace).
+// inline: inside running text. list: inside a list item. table: in a table cell.
+// link: the content of a link, as in [![thumb](a)](b).
+type MarkdownImagePlacement = MarkdownBlockPlacement | 'inline' | 'list' | 'table' | 'link';
 
 interface MarkdownImageSource {
   uri: string;

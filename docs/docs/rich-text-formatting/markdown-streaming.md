@@ -55,11 +55,11 @@ It takes **two** conditions, not one: `streamingAnimation` must be on **and** th
 | `'progressive'` (default) | Streams the code line-by-line with a visible but non-interactive header (copying is disabled until the block completes); syntax highlighting is deferred until the closing fence so it does not flicker on every token. |
 | `'hidden'` | Withholds the whole block until its closing fence arrives, then shows it complete. |
 
-**Images and videos** (`mediaMode`)
+**Images, videos and links** (`mediaMode`)
 
 | Mode | Behavior |
 | --- | --- |
-| `'progressive'` (default) | Shows a trailing image paragraph, link paragraph or `<video>` block once its syntax is complete; the half-streamed `![alt](https://…` line is withheld instead of flashing as text, and a partial `<video` tag is not parsed as a video. A bare URL on its own line can always grow, so it is withheld until the next line arrives. |
+| `'progressive'` (default) | Shows a trailing image paragraph, link paragraph or `<video>` block once its syntax is complete. A half-streamed `![alt](https://…` or `[label](https://…` is withheld instead of flashing as text, and a partial `<video` tag is not shown. A bare URL on its own line can always grow, so it is withheld until the next line arrives. |
 | `'hidden'` | Withholds the block until a blank line or another block follows it, like `tableMode: 'hidden'`. Applies to native images and to blocks drawn by [`renderers`](/react-native/guides/custom-block-renderers). |
 
 **Block math** has no mode key. An unterminated `$$` block is always withheld, truncated at the opening delimiter, until the closing `$$` arrives. On a page of LLM output that routinely contains LaTeX, this is the third incomplete-block case to expect.
