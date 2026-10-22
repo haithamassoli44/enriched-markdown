@@ -21,7 +21,7 @@ import { indexTaskItems, markInlineImages } from './utils';
 import { collectBlocks, type CollectedBlocks } from './blockSlots';
 import { useResolvedImageSources } from '../imageSources';
 import { hasRenderers, useRenderedBlocks } from '../blockRenderers';
-import type { MarkdownImageOccurrence } from '../types/MarkdownTextProps';
+import type { MarkdownImageOccurrence } from '../types/markdownBlocks';
 import { loadKaTeX } from './katex';
 import type { KaTeXInstance } from './katex';
 import { ENRM_TEXT_CLASS, ENRM_SELECTION_BG_VAR } from './globalStyles';

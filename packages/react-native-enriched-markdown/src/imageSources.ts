@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { EnrichedMarkdownTextProps } from './types/MarkdownTextProps';
 import type {
-  EnrichedMarkdownTextProps,
   MarkdownImageOccurrence,
   MarkdownImageSource,
-} from './types/MarkdownTextProps';
+} from './types/markdownBlocks';
 
 export type ImageSourceResolver = NonNullable<
   EnrichedMarkdownTextProps['resolveImageSource']

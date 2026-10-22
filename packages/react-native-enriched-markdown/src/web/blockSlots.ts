@@ -4,7 +4,7 @@ import type {
   MarkdownImageOccurrence,
   MarkdownImagePlacement,
   MarkdownBlockPlacement,
-} from '../types/MarkdownTextProps';
+} from '../types/markdownBlocks';
 import { extractNodeText } from './utils';
 
 export interface CollectedBlocks {

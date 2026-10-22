@@ -3,7 +3,7 @@ import type {
   MarkdownImageOccurrence,
   MarkdownImageSource,
   MarkdownRenderers,
-} from './MarkdownTextProps';
+} from './markdownBlocks';
 import type { CSSProperties, HTMLAttributes } from 'react';
 import type { MarkdownStyle, Md4cFlags } from './MarkdownStyle';
 import type {

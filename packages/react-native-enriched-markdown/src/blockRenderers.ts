@@ -1,9 +1,6 @@
 import { Fragment, isValidElement, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import type {
-  MarkdownBlock,
-  MarkdownRenderers,
-} from './types/MarkdownTextProps';
+import type { MarkdownBlock, MarkdownRenderers } from './types/markdownBlocks';
 
 // What a renderer may return at runtime from plain JS, beyond its typed
 // `ReactElement | undefined`.
