@@ -222,3 +222,23 @@ describe('DomRenderer inserts', () => {
     expect(mutations).toEqual(['lines:+3-0']);
   });
 });
+
+describe('DomRenderer direction', () => {
+  it('lets every line resolve its own direction, as native does', () => {
+    const root = document.createElement('div');
+    const renderer = new DomRenderer(root);
+    render(renderer, ['English', 'عربي', ['unordered-list-item', 'بند']]);
+    render(renderer, [
+      'English',
+      'عربي',
+      'new',
+      ['unordered-list-item', 'بند'],
+    ]);
+    expect([...root.children].map((line) => line.getAttribute('dir'))).toEqual([
+      'auto',
+      'auto',
+      'auto',
+      'auto',
+    ]);
+  });
+});

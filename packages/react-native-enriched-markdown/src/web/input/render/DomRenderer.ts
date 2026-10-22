@@ -351,6 +351,10 @@ function patchBlockAttributes(
   paragraph: ParagraphProjection
 ): void {
   const isListItem = LIST_ITEM_BLOCK_TYPES.has(paragraph.blockType);
+  // Each line picks its direction from its first strong character, as on
+  // native; a line with none inherits the input's direction. Set on patch too,
+  // since a line the browser split off may be reused.
+  if (element.dir !== 'auto') element.dir = 'auto';
   setData(
     element,
     'block',

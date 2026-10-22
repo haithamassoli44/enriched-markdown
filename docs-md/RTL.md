@@ -1,6 +1,6 @@
 # RTL Support
 
-`react-native-enriched-markdown` resolves writing direction **per paragraph** on both platforms: each paragraph picks its own base direction from its first strong directional character. Arabic, Hebrew, and Persian content right-aligns automatically, even inside an LTR app and even when mixed with English paragraphs in the same document.
+`react-native-enriched-markdown` resolves writing direction **per paragraph** on iOS, Android and web: each paragraph picks its own base direction from its first strong directional character. Arabic, Hebrew, and Persian content right-aligns automatically, even inside an LTR app and even when mixed with English paragraphs in the same document.
 
 This document describes the read-only [`EnrichedMarkdownText`](TEXT.md) renderer. The rich [`EnrichedMarkdownTextInput`](INPUT.md#rtl-support) follows the same per-paragraph rules — see its [RTL section](INPUT.md#rtl-support) for input-specific caveats (placeholder, code blocks, etc.).
 
@@ -17,6 +17,10 @@ Uses Android's `TEXT_DIRECTION_FIRST_STRONG` heuristic on every `StaticLayout`. 
 iOS TextKit's `NSWritingDirectionNatural` does **not** do per-paragraph first-strong — it follows the app's global UI layout direction. The library implements first-strong itself as a post-render pass, matching Android's behavior. The mode is controlled by the [`writingDirection`](#writingdirection-prop-ios) prop and defaults to `'first-strong'`.
 
 > **Note:** Earlier versions documented `I18nManager.forceRTL(true)` as a requirement on iOS. That is no longer needed for content direction — `first-strong` resolves each paragraph from its content. `I18nManager.forceRTL` still affects the surrounding app layout (Yoga direction, navigation, etc.) and remains useful if you want the whole app in RTL mode, but it's no longer a precondition for Markdown to render right-aligned.
+
+### Web
+
+Every top-level paragraph, heading, list, blockquote and table cell gets `dir="auto"`, and each editor line in `EnrichedMarkdownTextInput` does too, so the browser applies first-strong per block. A list takes its direction from its first item. Pass `dir="ltr"` or `dir="rtl"` to force one direction for the whole document; `writingDirection` is ignored on web.
 
 ## `writingDirection` prop (iOS)
 

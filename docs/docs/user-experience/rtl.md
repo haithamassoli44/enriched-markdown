@@ -20,12 +20,10 @@ In the React Native package, every target resolves direction without configurati
 
 - **Android** uses the platform `TEXT_DIRECTION_FIRST_STRONG` heuristic on every layout. Paragraphs with no strong character fall back to the view's resolved layout direction (which inherits an ancestor `<View style={{ direction: 'rtl' }}>` and `I18nManager.isRTL`).
 - **iOS** TextKit does not do per-paragraph first-strong on its own - it follows the app's global UI layout direction - so the library implements first-strong itself as a post-render pass, matching Android. The mode is controlled by the `writingDirection` prop and defaults to `'first-strong'`.
-- **Web** uses CSS logical properties, so blockquote borders and list indentation flip with the container's direction, which you set through the [`dir`](/react-native/api-reference/enriched-markdown-text#dir) prop.
+- **Web** gives every top-level paragraph, heading, list, blockquote, admonition and table cell `dir="auto"`, so the browser resolves each one from its first strong character, like native. CSS logical properties then put blockquote borders, list markers and unaligned table cells on the matching side. The editor does the same per line. Setting the [`dir`](/react-native/api-reference/enriched-markdown-text#dir) prop to `'ltr'` or `'rtl'` forces one direction for the whole document instead.
 
 :::caution
-Web resolves direction **once, at the container level**. No renderer emits a per-element `dir` or `unicode-bidi`, so a mixed-direction document does **not** resolve per paragraph on web the way it does on native - the whole block takes the root's direction. [`writingDirection`](/react-native/api-reference/enriched-markdown-text#writingdirection) is stripped there; `dir` is the only control.
-
-Two table properties are also physical rather than logical and do not flip: an unaligned column falls back to `text-align: left`, and the table wrapper uses physical `marginLeft`/`marginRight`.
+On web a list takes one direction, from its first item, rather than one per item. [`writingDirection`](/react-native/api-reference/enriched-markdown-text#writingdirection) is stripped there; `dir` is the only control. The table wrapper's `table.align` uses physical `marginLeft`/`marginRight` and does not flip.
 :::
 
 :::note

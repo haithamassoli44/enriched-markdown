@@ -23,7 +23,7 @@ Most `EnrichedMarkdownText` features are supported on web (see [Not supported on
 - `onCodeBlockPress` — makes fenced code blocks clickable and keyboard-activatable (Enter/Space) with a button role, receiving the block's `code` and `language`; clicking while code text is selected does not fire
 - `enableTaskListItemToggle` — set to `false` to render task list checkboxes read-only (the click is fully inert: no toggle, no `onTaskListItemPress`). The checkbox keeps its normal appearance, marked `readOnly` / `aria-disabled` and pointer-inert rather than `disabled`, matching iOS and Android
 - `allowTrailingMargin`, `containerStyle`, `selectable`, `selectionColor`, `md4cFlags` (`underline`, `superscript`, `subscript`, `latexMath`, `highlight`, `hardSoftBreaks`, `preserveBlankLines`, `admonitions`)
-- RTL support via the `dir` prop (CSS logical properties automatically flip blockquote borders, list indentation, etc.)
+- RTL and mixed-direction (bidi) content: each block resolves its own direction from its first strong character, as on native; the `dir` prop forces one direction (CSS logical properties flip blockquote borders, list indentation, etc.)
 
 ### Accessibility
 
@@ -38,7 +38,7 @@ Most `EnrichedMarkdownText` features are supported on web (see [Not supported on
 
 | Prop | Description |
 |---|---|
-| `dir` | Web-only. Sets the text direction on the root container (`'ltr'`, `'rtl'`, or `'auto'`). CSS logical properties in the renderers automatically flip layout for RTL. |
+| `dir` | Web-only. Text direction (`'ltr'`, `'rtl'`, or `'auto'`). Unset or `'auto'` resolves each block from its content; `'ltr'` / `'rtl'` force the whole document. CSS logical properties in the renderers flip layout for RTL. |
 | `testID` | Standard React Native prop; on web it is applied to the root container as `data-testid`. |
 
 All of these are part of the exported `EnrichedMarkdownTextProps` type for web.

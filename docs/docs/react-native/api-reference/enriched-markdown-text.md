@@ -595,7 +595,7 @@ See [RTL support](/user-experience/rtl) for the full behavior information.
 
 ### `dir` <WebBadge /> {#dir}
 
-Sets the text direction on the root container on web. The web renderers use CSS logical properties, so this flips blockquote borders, list indentation, and other directional layout automatically. It is the web counterpart to [`writingDirection`](#writingdirection) (iOS) - on iOS and Android it is a no-op, as those platforms resolve direction per paragraph.
+Text direction on web. Unset or `'auto'`, each paragraph, heading, list, blockquote and table cell resolves its own direction from its first strong character, as on native, and falls back to the container's direction when it has none. `'ltr'` or `'rtl'` forces that direction on the whole document. The web renderers use CSS logical properties, so blockquote borders, list indentation, and other directional layout follow. It is the web counterpart to [`writingDirection`](#writingdirection) (iOS) - on iOS and Android it is a no-op.
 
 <PropInfo type="'ltr' | 'rtl' | 'auto'" />
 

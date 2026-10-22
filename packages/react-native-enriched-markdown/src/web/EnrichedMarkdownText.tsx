@@ -148,9 +148,10 @@ export const EnrichedMarkdownText = ({
     ]
   );
 
+  const blockDir = dir === 'ltr' || dir === 'rtl' ? undefined : 'auto';
   const capabilities = useMemo<RenderCapabilities>(
-    () => ({ katex, enableTaskListItemToggle }),
-    [katex, enableTaskListItemToggle]
+    () => ({ katex, enableTaskListItemToggle, blockDir }),
+    [katex, enableTaskListItemToggle, blockDir]
   );
 
   const lastChildStyle = useMemo(

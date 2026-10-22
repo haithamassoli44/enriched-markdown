@@ -92,6 +92,11 @@ export interface RenderCapabilities {
   katex: KaTeXInstance | null;
   /** When false, task list checkboxes render read-only and ignore clicks. */
   enableTaskListItemToggle: boolean;
+  /**
+   * `dir` for each top-level block. `'auto'` resolves every paragraph from its
+   * first strong character, like native; `undefined` inherits a forced root `dir`.
+   */
+  blockDir: 'auto' | undefined;
 }
 
 export interface RendererProps {

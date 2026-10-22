@@ -15,6 +15,7 @@ function ParagraphRenderer({
   node,
   styles,
   parentType,
+  capabilities,
   renderChildren,
 }: RendererProps) {
   const isImageOnly =
@@ -29,17 +30,43 @@ function ParagraphRenderer({
     return <span>{renderChildren(node)}</span>;
   }
 
-  return <p style={styles.paragraph}>{renderChildren(node)}</p>;
-}
-
-function HeadingRenderer({ node, styles, renderChildren }: RendererProps) {
-  const Tag = toHeadingLevel(node.attributes?.level ?? '1');
-  return <Tag style={styles[Tag]}>{renderChildren(node)}</Tag>;
-}
-
-function BlockquoteRenderer({ node, styles, renderChildren }: RendererProps) {
   return (
-    <blockquote style={styles.blockquote}>{renderChildren(node)}</blockquote>
+    <p style={styles.paragraph} dir={capabilities.blockDir}>
+      {renderChildren(node)}
+    </p>
+  );
+}
+
+function HeadingRenderer({
+  node,
+  styles,
+  parentType,
+  capabilities,
+  renderChildren,
+}: RendererProps) {
+  const Tag = toHeadingLevel(node.attributes?.level ?? '1');
+  return (
+    <Tag
+      style={styles[Tag]}
+      dir={parentType === undefined ? capabilities.blockDir : undefined}
+    >
+      {renderChildren(node)}
+    </Tag>
+  );
+}
+
+// Children inherit: a nested `dir` would hide their text from this element's
+// `dir="auto"` and leave the border on the wrong side.
+function BlockquoteRenderer({
+  node,
+  styles,
+  capabilities,
+  renderChildren,
+}: RendererProps) {
+  return (
+    <blockquote style={styles.blockquote} dir={capabilities.blockDir}>
+      {renderChildren(node)}
+    </blockquote>
   );
 }
 
@@ -47,6 +74,7 @@ function AdmonitionRenderer({
   node,
   style,
   styles,
+  capabilities,
   renderChildren,
 }: RendererProps) {
   const type = (node.attributes?.admonitionType ?? 'note') as AdmonitionType;
@@ -71,7 +99,11 @@ function AdmonitionRenderer({
     lineHeight: 1.2,
   };
   return (
-    <div className={ENRM_ADMONITION_CLASS} style={boxStyle}>
+    <div
+      className={ENRM_ADMONITION_CLASS}
+      style={boxStyle}
+      dir={capabilities.blockDir}
+    >
       <div style={headerStyle}>
         <svg
           width={iconSize}
@@ -82,7 +114,7 @@ function AdmonitionRenderer({
         >
           <path d={ADMONITION_ICON_PATHS[type]} />
         </svg>
-        <span>{ADMONITION_TITLES[type]}</span>
+        <span dir={capabilities.blockDir}>{ADMONITION_TITLES[type]}</span>
       </div>
       {renderChildren(node)}
     </div>
