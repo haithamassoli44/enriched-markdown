@@ -126,14 +126,42 @@ size_t listMarkerWidth(std::string_view body) {
   return content;
 }
 
-bool startsOwnBlock(std::string_view body) {
-  if (listMarkerWidth(body) != 0)
-    return true;
-  std::string_view text = body.substr(std::min(leadingSpaces(body), body.size()));
+bool isAtxHeading(std::string_view body) {
+  size_t indent = leadingSpaces(body);
+  if (indent > 3)
+    return false;
+  std::string_view text = body.substr(indent);
   size_t hashes = 0;
   while (hashes < text.size() && text[hashes] == '#')
     hashes++;
   return hashes >= 1 && hashes <= 6 && (hashes == text.size() || text[hashes] == ' ');
+}
+
+bool startsOwnBlock(std::string_view body) {
+  return listMarkerWidth(body) != 0 || isAtxHeading(body);
+}
+
+// A setext underline (`===`, `---`) or a thematic break (`***`, `- - -`): it
+// ends the block above it, and the line after it starts a new one.
+bool isUnderlineOrBreak(std::string_view body) {
+  if (leadingSpaces(body) > 3)
+    return false;
+  std::string_view text = trim(body);
+  if (text.empty())
+    return false;
+  char ch = text[0];
+  if ((ch == '=' || ch == '-') && text.find_first_not_of(ch) == npos)
+    return true;
+  if (ch != '*' && ch != '-' && ch != '_')
+    return false;
+  size_t marks = 0;
+  for (char c : text) {
+    if (c == ch)
+      marks++;
+    else if (!isWhitespace(c))
+      return false;
+  }
+  return marks >= 3;
 }
 
 // ---- fenced code and reference definitions, in one forward scan
@@ -411,6 +439,10 @@ size_t openInlineSyntaxStart(std::string_view text, const std::unordered_set<std
   InlineSyntax::CodeSpans spans(text);
   InlineSyntax::CodeSpans::Cursor code(spans);
   std::vector<size_t> openers;
+  // Where the last destination found to be prose gave up. A `](` before it
+  // sits inside that destination and would rescan the same text to the same
+  // end, which makes `[x](` repeated quadratic.
+  size_t proseUntil = 0;
   // The outermost construct still open when `innermost` is: the earliest
   // opener within kMaxOpenLabel of the end, the `!` of an image included.
   auto openFrom = [&](size_t innermost) {
@@ -446,10 +478,15 @@ size_t openInlineSyntaxStart(std::string_view text, const std::unordered_set<std
     if (isBlankFrom(text, after))
       return openFrom(opener); // `[label]`: the `(` may be next
     if (text[after] == '(') {
-      size_t end = InlineSyntax::destinationEnd(text, after);
+      if (after < proseUntil)
+        continue;
+      size_t stop = npos;
+      size_t end = InlineSyntax::destinationEnd(text, after, &stop);
       if (end == npos)
         return openFrom(opener);
-      if (end != InlineSyntax::kInvalid)
+      if (end == InlineSyntax::kInvalid)
+        proseUntil = stop;
+      else
         i = end;
       continue;
     }
@@ -467,12 +504,31 @@ size_t openInlineSyntaxStart(std::string_view text, const std::unordered_set<std
   return openers.empty() ? npos : openFrom(openers.back());
 }
 
+// The first line of the paragraph that ends at `last`. A line that opens its
+// own block (a list item, a heading, a deeper quote, an HTML block) starts it;
+// one that cannot continue (a heading, an underline, a break) ends the block
+// before it.
+size_t paragraphStart(const Lines &lines, size_t start, size_t last) {
+  size_t line = last;
+  while (line > start) {
+    Quoted current = stripQuotes(lines[line].text);
+    Quoted previous = stripQuotes(lines[line - 1].text);
+    std::string_view content = current.body.substr(std::min(leadingSpaces(current.body), current.body.size()));
+    if (startsOwnBlock(current.body) || isUnderlineOrBreak(current.body) || startsRawHtmlBlock(content) ||
+        current.depth > previous.depth || isAtxHeading(previous.body) || isUnderlineOrBreak(previous.body))
+      break;
+    line--;
+  }
+  return line;
+}
+
 // The paragraph ends in an image or link still being typed: cut that syntax so
 // it never shows as literal text.
 void cutOpenInlineSyntax(Document &doc, size_t start, size_t last, const BlockScan &scan) {
-  size_t paragraph = last;
-  while (paragraph > start && !startsOwnBlock(stripQuotes(doc.lines[paragraph].text).body))
-    paragraph--;
+  size_t paragraph = paragraphStart(doc.lines, start, last);
+  std::string_view body = stripQuotes(doc.lines[paragraph].text).body;
+  if (startsRawHtmlBlock(body.substr(std::min(leadingSpaces(body), body.size()))))
+    return;
   size_t offset = doc.lines[paragraph].offset;
   size_t open = openInlineSyntaxStart(doc.text.substr(offset), scan.definitions);
   if (open != npos)

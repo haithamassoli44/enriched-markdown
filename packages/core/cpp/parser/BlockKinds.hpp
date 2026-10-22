@@ -72,9 +72,9 @@ size_t labelEnd(std::string_view text, size_t bracket, const CodeSpans &spans);
 // after `]`): the destination may be `<pointy>` or hold balanced parentheses,
 // the optional title is quoted or parenthesised, and escapes are honoured
 // throughout; npos when it has not arrived, kInvalid when what follows can no
-// longer close it (`[a](u then prose`).
+// longer close it (`[a](u then prose`), with `stop` set to where it gave up.
 constexpr size_t kInvalid = std::string_view::npos - 1;
-size_t destinationEnd(std::string_view text, size_t openParen);
+size_t destinationEnd(std::string_view text, size_t openParen, size_t *stop = nullptr);
 // How far a `[label](destination)` or `![alt](destination)` that starts at
 // `bracket` (the `[`) has streamed in: Open while its syntax can still close,
 // Complete when it closed and only whitespace follows, None when it is prose

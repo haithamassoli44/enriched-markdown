@@ -52,6 +52,8 @@ int main() {
       {"closed labels", "x " + repeat("[a] ", size)},
       {"backtick runs", repeat("`` x ` ", size)},
       {"lines of links", repeat("see [l](https://e.com/x)\n", size)},
+      {"open destinations", repeat("[x](", size) + " z"},
+      {"destinations with text", repeat("[x](a", size) + " z"},
   };
   double base = microsPerCall(baseline);
   int failures = 0;

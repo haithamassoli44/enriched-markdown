@@ -167,6 +167,17 @@ int main() {
   expect("a `x\n[a](https://e` b", "a `x\n[a](https://e` b", "code span across lines kept");
   expect("para\n    [a](https://e", "para\n    ", "lazy continuation is not indented code");
   expect("- item\n- see [a](https://e", "- item\n- see ", "only the last list item is scanned");
+  expect("# Heading [draft\nsome text after", "# Heading [draft\nsome text after",
+         "a heading ends on its line: the paragraph after it is scanned");
+  expect("Title [x\n=====\nnext para", "Title [x\n=====\nnext para", "a setext underline ends the block above");
+  expect("Title [x\n=====", "Title [x\n=====", "a setext heading with a stray bracket is closed");
+  expect("para [x\n***\nnext", "para [x\n***\nnext", "a thematic break ends the block above");
+  expect("para [x\n> quoted text", "para [x\n> quoted text", "a quote interrupts the paragraph");
+  expect("> a [x\n> > nested text", "> a [x\n> > nested text", "a deeper quote interrupts the paragraph");
+  expect("> see [the\ndocs](https://e", "> see ", "a lazy continuation line stays in the quoted paragraph");
+  expect("para [x\n<div>raw</div>", "para [x\n<div>raw</div>", "an HTML block interrupts the paragraph");
+  expect("# Heading\nsee [a](https://e", "# Heading\nsee ", "the paragraph after a heading is still cut");
+  expect("[x](a [b](https://e", "[x](a ", "a link after a destination found to be prose is still cut");
   expect("See [docs](https://e.com then more", "See [docs](https://e.com then more",
          "a destination followed by prose is no link");
   const std::string stray = "Note [1 " + std::string(600, 'x');
