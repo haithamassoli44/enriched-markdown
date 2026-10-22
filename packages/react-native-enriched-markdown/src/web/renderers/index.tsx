@@ -23,7 +23,11 @@ const TABLE_PARTS = new Set<NodeType>([
   'TableRow',
 ]);
 
+// A replaceable block keeps its identity across inserts above it, so the
+// renderer's element (a playing video, a card's state) survives them.
 function nodeKey(node: ASTNode, index: number): string | number {
+  const blockSlotId = node.attributes?.blockSlotId;
+  if (blockSlotId !== undefined) return blockSlotId;
   if (node.type === 'ListItem' && node.attributes?.isTask === 'true') {
     const taskId = node.attributes.taskIndex ?? index;
     return `task-${taskId}-${node.attributes.taskChecked}`;
