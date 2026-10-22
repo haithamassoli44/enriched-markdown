@@ -72,6 +72,21 @@ open class ContainerNodeView(
     return changed
   }
 
+  // The host's slot views by id; a nested container reaches them through its parent.
+  internal open fun slotViewsForAccessibility(): Map<String, View> =
+    (parent as? ContainerNodeView)?.slotViewsForAccessibility() ?: emptyMap()
+
+  // A container read as a whole (a quote is long-clickable, so important) still
+  // lists its own children here, and its placeholders give way to slot views too.
+  override fun addChildrenForAccessibility(outChildren: ArrayList<View>) {
+    val slotViews = slotViewsForAccessibility()
+    if (slotViews.isEmpty()) {
+      super.addChildrenForAccessibility(outChildren)
+      return
+    }
+    addSegmentsForAccessibility(slotViews, outChildren)
+  }
+
   /**
    * The views accessibility reads, in document order: each placeholder gives way
    * to the slot view standing in for it, and nested containers are flattened,

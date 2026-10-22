@@ -180,14 +180,8 @@ class EnrichedMarkdown(
 
   // The slot layer spans the whole host, so the default order, by position,
   // would read every React replacement before the text above it.
-  override fun addChildrenForAccessibility(outChildren: ArrayList<View>) {
-    if (slotLayer.childCount == 0) {
-      super.addChildrenForAccessibility(outChildren)
-      return
-    }
-    val slotViews = slotLayer.children.filterIsInstance<EnrichedMarkdownBlockSlotView>().associateBy { it.slotId }
-    addSegmentsForAccessibility(slotViews, outChildren)
-  }
+  override fun slotViewsForAccessibility(): Map<String, View> =
+    slotLayer.children.filterIsInstance<EnrichedMarkdownBlockSlotView>().associateBy { it.slotId }
 
   // isTaskToggle marks a checkbox flip rendered locally ahead of the prop; it
   // moves no code block, so it skips the wrap state's reset rule.
