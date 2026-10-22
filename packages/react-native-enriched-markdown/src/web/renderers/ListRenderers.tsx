@@ -26,8 +26,8 @@ function ListRenderer({
     : hasTaskChild
       ? styles.listTask
       : styles.list;
-  // ponytail: one direction per list, from its first item; per-item markers
-  // would need the indent moved from the list onto each item.
+  // One direction per list, from its first item; per-item markers would need
+  // the indent moved from the list onto each item.
   return (
     <ListTag style={resolvedStyle} dir={capabilities.blockDir}>
       {renderChildren(node)}

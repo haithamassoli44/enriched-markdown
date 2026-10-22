@@ -12,7 +12,7 @@ import { blockRenderers } from './BlockRenderers';
 import { inlineRenderers } from './InlineRenderers';
 import { listRenderers } from './ListRenderers';
 import { tableRenderers } from './TableRenderers';
-import { hasStrongChar, extractNodeText } from '../utils';
+import { hasStrongText } from '../utils';
 
 // Their `dir` would hide the cells' text from the table, so the cells resolve
 // instead.
@@ -68,7 +68,7 @@ export function RenderNode({
   // its parent's `dir="auto"` (e.g. `> > مرحبا` would put the outer border on
   // the left). A block with no letters inherits instead of turning LTR.
   const ownCapabilities =
-    capabilities.blockDir && !hasStrongChar(extractNodeText(node))
+    capabilities.blockDir && !hasStrongText(node)
       ? { ...capabilities, blockDir: undefined }
       : capabilities;
   const childCapabilities =

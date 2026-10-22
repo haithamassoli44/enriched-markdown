@@ -244,4 +244,19 @@ describe('DomRenderer direction', () => {
       '',
     ]);
   });
+
+  it('drops a line back to inheriting when it loses its last letter', () => {
+    const root = document.createElement('div');
+    const renderer = new DomRenderer(root);
+    render(renderer, ['', ['unordered-list-item', '']]);
+    expect(dirs(root)).toEqual(['', '']);
+    render(renderer, ['عربي', ['unordered-list-item', 'بند']]);
+    expect(dirs(root)).toEqual(['auto', 'auto']);
+    render(renderer, ['12', ['unordered-list-item', '']]);
+    expect(dirs(root)).toEqual(['', '']);
+  });
 });
+
+function dirs(root: HTMLElement): (string | null)[] {
+  return [...root.children].map((line) => line.getAttribute('dir'));
+}

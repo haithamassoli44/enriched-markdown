@@ -43,6 +43,21 @@ const nestedDoc = [
   ]),
 ];
 
+const admonition = node('Admonition', [node('Paragraph', [text('تنبيه')])], {
+  admonitionType: 'note',
+});
+
+// Blocks that open with another block, and blocks with no letters to read.
+const edgeDoc = [
+  admonition,
+  node('Blockquote', [admonition]),
+  node('UnorderedList', [
+    node('ListItem', [node('Blockquote', [node('Paragraph', [text('عربي')])])]),
+  ]),
+  node('Blockquote', [node('CodeBlock', [text('npm i')])]),
+  node('Heading', [text('2026')], { level: '2' }),
+];
+
 function html(
   blockDir: RenderCapabilities['blockDir'],
   nodes: ASTNode[] = doc
@@ -87,6 +102,25 @@ describe('web renderer direction', () => {
     expect(out).toMatch(/^<blockquote[^>]*dir="auto"/);
     // Code is skipped by the quote's scan.
     expect(out).toMatch(/<pre[^>]*dir="ltr"/);
+  });
+
+  it('gives the outer block a direction when it opens with a nested one', () => {
+    const out = html('auto', edgeDoc);
+    // The admonition, the quote around the second one, and the list.
+    expect(out.match(/dir="auto"/g)).toHaveLength(3);
+    expect(out).toMatch(/^<div[^>]*dir="auto"/);
+    expect(out).toMatch(
+      /<blockquote[^>]*dir="auto"[^>]*><div(?![^>]*dir="auto")/
+    );
+    expect(out).toMatch(/<ul[^>]*dir="auto"/);
+    // The admonition title never decides the box's direction.
+    expect(out.match(/<span dir="ltr">Note<\/span>/g)).toHaveLength(2);
+  });
+
+  it('lets a block whose only letters are code or digits inherit', () => {
+    const out = html('auto', edgeDoc);
+    expect(out).not.toMatch(/<blockquote[^>]*dir="auto"[^>]*><pre/);
+    expect(out).not.toMatch(/<h2[^>]*dir=/);
   });
 
   it('leaves blocks to inherit a forced root direction', () => {
