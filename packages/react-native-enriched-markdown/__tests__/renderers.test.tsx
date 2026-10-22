@@ -583,6 +583,43 @@ it('sends sync image sources to native and keeps pending ones as empty uris', as
   ]);
 });
 
+it('keeps the source of an image asked again for a new placement', async () => {
+  mockSlots = [];
+  mockImages = OCCURRENCES.slice(0, 1);
+  const answers: Array<(source: { uri: string }) => void> = [];
+  const resolver = jest.fn(
+    () =>
+      new Promise<{ uri: string }>((resolve) => {
+        answers.push(resolve);
+      })
+  );
+  const tree = (markdown: string) => (
+    <EnrichedMarkdownText
+      markdown={markdown}
+      flavor="github"
+      resolveImageSource={resolver}
+    />
+  );
+  const root = render(tree('![a](x)'));
+  await act(async () => {
+    answers[0]!({ uri: 'https://cdn/root' });
+    await Promise.resolve();
+  });
+  expect(host(root).props.imageSources[0].uri).toBe('https://cdn/root');
+
+  // The paragraph streams on past the image, so it becomes inline.
+  mockImages = [{ ...OCCURRENCES[0]!, placement: 'inline' }];
+  act(() => root.render(tree('![a](x) and more text')));
+  expect(resolver).toHaveBeenCalledTimes(2);
+  expect(host(root).props.imageSources[0].uri).toBe('https://cdn/root');
+
+  await act(async () => {
+    answers[1]!({ uri: 'https://cdn/inline' });
+    await Promise.resolve();
+  });
+  expect(host(root).props.imageSources[0].uri).toBe('https://cdn/inline');
+});
+
 it('applies a source that settles after the document changed', async () => {
   mockSlots = [];
   mockImages = OCCURRENCES;

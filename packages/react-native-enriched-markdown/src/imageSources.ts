@@ -33,16 +33,19 @@ function isPromise(value: unknown): value is Promise<unknown> {
   );
 }
 
+// The id hashes these, so an answer kept for the id is still for this image.
+function sameImage(
+  a: MarkdownImageOccurrence,
+  b: MarkdownImageOccurrence
+): boolean {
+  return a.url === b.url && a.altText === b.altText && a.title === b.title;
+}
+
 function sameOccurrence(
   a: MarkdownImageOccurrence,
   b: MarkdownImageOccurrence
 ): boolean {
-  return (
-    a.url === b.url &&
-    a.altText === b.altText &&
-    a.title === b.title &&
-    a.placement === b.placement
-  );
+  return sameImage(a, b) && a.placement === b.placement;
 }
 
 interface CacheEntry {
@@ -67,7 +70,9 @@ interface PendingEntry {
  *
  * Answers are kept by occurrence id while the occurrence is unchanged, so a
  * streaming append or an edit elsewhere neither asks again nor drops an image
- * that already resolved; images that leave the document are forgotten. A
+ * that already resolved; images that leave the document are forgotten. An
+ * image that only moves to another placement (a paragraph streams on past it)
+ * is asked again but keeps its answer until the new one lands. A
  * promise keeps its image pending until it settles; a rejection or a thrown
  * error logs in dev and keeps the placeholder. The resolver is read like an
  * event handler: changing the function does not run it again. Remount with a
@@ -123,7 +128,7 @@ export function useResolvedImageSources(
       if (cached && sameOccurrence(cached.image, image)) continue;
       const inFlight = pending.get(image.id);
       if (inFlight && sameOccurrence(inFlight.image, image)) continue;
-      cache.delete(image.id);
+      if (cached && !sameImage(cached.image, image)) cache.delete(image.id);
       pending.delete(image.id);
       let result: ReturnType<ImageSourceResolver>;
       try {
@@ -178,7 +183,7 @@ export function useResolvedImageSources(
     const result = new Map<string, ResolvedImageSource>();
     for (const image of occurrences) {
       const cached = cacheRef.current.get(image.id);
-      const current = cached && sameOccurrence(cached.image, image);
+      const current = cached && sameImage(cached.image, image);
       result.set(image.id, current ? cached.source : PENDING);
     }
     const previous = previousRef.current;

@@ -63,7 +63,7 @@ If a block still shows up a moment before the text after it, set [`streamingConf
 
 Use [`resolveImageSource`](/react-native/api-reference/enriched-markdown-text#resolveimagesource) when the image is right but its request is not: a URL that needs a signature, or a token in a header. Return `{ uri, headers }`, or a promise of it, and the native image loads from there.
 
-Each image is asked about once while it stays in the document. A streaming append only asks about new images, so a signed image never flickers back to its placeholder. Until the resolver answers, the image shows its placeholder and the Markdown URL is never requested. After a token refresh, remount the component with a `key` to ask again.
+Each image is asked about once while it stays in the document. A streaming append only asks about new images, and about an image whose placement it changes (the paragraph continues past it), so a signed image never flickers back to its placeholder: it keeps its source until the new answer lands. Until the resolver answers, the image shows its placeholder and the Markdown URL is never requested. After a token refresh, remount the component with a `key` to ask again.
 
 <LivePreview src={SignedImagesSrc} />
 

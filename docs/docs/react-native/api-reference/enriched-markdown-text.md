@@ -402,7 +402,7 @@ Chooses the request made for an image instead of its Markdown URL, such as a sig
 
 - **Which images:** every image, including those in lists, tables, blockquotes and links.
 - **Return value:** a source, a promise of one, or `undefined` (or no return) to load the Markdown URL. Until it answers, and when a promise rejects or resolves to an empty `uri`, the image keeps its placeholder and the Markdown URL is not requested.
-- **Calls:** once per image while it stays in the document, after rendering, never during it. A streaming append only asks about new images; an edited image is asked about again. Passing a new function does not resolve again, so an inline arrow is fine. Remount with a `key` to start over, for example after a token refresh.
+- **Calls:** once per image while it stays in the document, after rendering, never during it. A streaming append only asks about new images; an edited image, or one whose placement changed, is asked about again and keeps its current source until the answer lands. Passing a new function does not resolve again, so an inline arrow is fine. Remount with a `key` to start over, for example after a token refresh.
 - **Headers:** merge over [`imageRequestHeaders`](#imagerequestheaders) (case-insensitive names) and take part in the [image cache identity](/react-native/guides/image-caching).
 - **Unchanged elsewhere:** events, copy actions and [`renderers`](#renderers) keep reporting the Markdown URL.
 - **Flavor:** `flavor="github"` only.
