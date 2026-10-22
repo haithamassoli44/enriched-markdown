@@ -6,7 +6,7 @@ This document describes the read-only [`EnrichedMarkdownText`](TEXT.md) renderer
 
 ## Platform Setup
 
-No setup is required. Both platforms autodetect direction per paragraph out of the box.
+No setup is required. Every platform autodetects direction per paragraph out of the box.
 
 ### Android
 
@@ -20,7 +20,7 @@ iOS TextKit's `NSWritingDirectionNatural` does **not** do per-paragraph first-st
 
 ### Web
 
-Every top-level paragraph, heading, list, blockquote and table cell gets `dir="auto"`, and each editor line in `EnrichedMarkdownTextInput` does too, so the browser applies first-strong per block. A list takes its direction from its first item. Pass `dir="ltr"` or `dir="rtl"` to force one direction for the whole document; `writingDirection` is ignored on web.
+Each top-level block gets `dir="auto"`, so the browser resolves it from its first strong character, and CSS logical properties put blockquote borders, list markers and unaligned table cells on the matching side. `EnrichedMarkdownTextInput` does the same per line. A list takes its direction from its first item. Pass `dir="ltr"` or `dir="rtl"` to force one direction for the whole document; `writingDirection` is ignored on web.
 
 ## `writingDirection` prop (iOS)
 
@@ -54,7 +54,7 @@ Each element follows the **paragraph it belongs to**, not a global flag — so a
 | **Ordered lists** | Number drawn on the side that matches the item's paragraph direction. |
 | **Task lists** | Checkbox drawn on the matching side; tap hit-test follows the same side. |
 | **Blockquotes** | Border drawn on the side that matches the quoted paragraph. |
-| **Tables** (`flavor="github"`) | Each cell resolves its own direction independently from cell content. |
+| **Tables** (`flavor="github"`) | Each cell resolves its own direction independently from cell content. On web, column order follows the container. |
 | **Code blocks** | Always LTR. |
 | **Inline code** | Inherits its paragraph's direction; characters flow correctly via TextKit Bidi. |
 
@@ -69,6 +69,8 @@ For paragraphs with no strong directional character (digits, punctuation, block 
   <EnrichedMarkdownText markdown="123 456 789." />
 </View>
 ```
+
+On web, such a block gets no `dir` and inherits the container's direction.
 
 This mirrors Android's first-strong fallback and lets you place an LTR app in an RTL screen (or vice versa) without surprises for neutral content.
 

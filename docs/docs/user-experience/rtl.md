@@ -5,7 +5,7 @@ sidebar_position: 2
 
 # RTL support
 
-`EnrichedMarkdownText` resolves writing direction **per paragraph** on both platforms: each paragraph picks its own base direction from its first strong directional character. Arabic, Hebrew, and Persian content right-aligns automatically, even inside an LTR app and even when mixed with English paragraphs in the same document.
+`EnrichedMarkdownText` resolves writing direction **per paragraph** on iOS, Android and web: each paragraph picks its own base direction from its first strong directional character. Arabic, Hebrew, and Persian content right-aligns automatically, even inside an LTR app and even when mixed with English paragraphs in the same document.
 
 The React Native package's editor (`EnrichedMarkdownTextInput`) follows the same per-paragraph rules; see its reference for input-specific caveats (placeholder, code blocks).
 
@@ -20,10 +20,10 @@ In the React Native package, every target resolves direction without configurati
 
 - **Android** uses the platform `TEXT_DIRECTION_FIRST_STRONG` heuristic on every layout. Paragraphs with no strong character fall back to the view's resolved layout direction (which inherits an ancestor `<View style={{ direction: 'rtl' }}>` and `I18nManager.isRTL`).
 - **iOS** TextKit does not do per-paragraph first-strong on its own - it follows the app's global UI layout direction - so the library implements first-strong itself as a post-render pass, matching Android. The mode is controlled by the `writingDirection` prop and defaults to `'first-strong'`.
-- **Web** gives every top-level paragraph, heading, list, blockquote, admonition and table cell `dir="auto"`, so the browser resolves each one from its first strong character, like native. CSS logical properties then put blockquote borders, list markers and unaligned table cells on the matching side. The editor does the same per line. Setting the [`dir`](/react-native/api-reference/enriched-markdown-text#dir) prop to `'ltr'` or `'rtl'` forces one direction for the whole document instead.
+- **Web** gives each top-level block `dir="auto"`, so the browser resolves it from its first strong character, like native, and CSS logical properties put blockquote borders, list markers and unaligned table cells on the matching side. The editor does the same per line. Setting the [`dir`](/react-native/api-reference/enriched-markdown-text#dir) prop to `'ltr'` or `'rtl'` forces one direction for the whole document instead.
 
 :::caution
-On web a list takes one direction, from its first item, rather than one per item. [`writingDirection`](/react-native/api-reference/enriched-markdown-text#writingdirection) is stripped there; `dir` is the only control. The table wrapper's `table.align` uses physical `marginLeft`/`marginRight` and does not flip.
+On web a list takes one direction, from its first item, rather than one per item, and the table wrapper's `table.align` uses physical `marginLeft`/`marginRight` and does not flip.
 :::
 
 :::note
@@ -99,8 +99,8 @@ Each element follows the **paragraph it belongs to**, not a global flag, so a si
 | **Unordered / ordered lists** | Bullet or number drawn on the side that matches the item's paragraph direction. |
 | **Task lists** | Checkbox drawn on the matching side; the tap hit-test follows the same side. |
 | **Blockquotes** | Accent bar drawn on the side that matches the quoted paragraph. |
-| **Tables** (`flavor="github"`) | On iOS, each cell resolves its own direction from its content. **On Android, cells are pinned to the device locale** (`TEXT_DIRECTION_LOCALE`), and column order and alignment follow the app's locale layout direction rather than the view's - so an Arabic cell in an English-locale app lays out LTR. |
-| **Code blocks** | Always LTR on iOS, and on Android under `flavor="github"` (the container pins it). Under `flavor="commonmark"` Android has no pin, so a code block whose first strong character is RTL takes an RTL base direction. |
+| **Tables** (`flavor="github"`) | On iOS, each cell resolves its own direction from its content. **On Android, cells are pinned to the device locale** (`TEXT_DIRECTION_LOCALE`), and column order and alignment follow the app's locale layout direction rather than the view's - so an Arabic cell in an English-locale app lays out LTR. On **web**, each cell resolves its own direction and column order follows the container. |
+| **Code blocks** | Always LTR on iOS and web, and on Android under `flavor="github"` (the container pins it). Under `flavor="commonmark"` Android has no pin, so a code block whose first strong character is RTL takes an RTL base direction. |
 | **Inline code** | Inherits its paragraph's direction on native; characters flow correctly via the platform Bidi algorithm. On **web** it is pinned `direction: ltr` with `unicode-bidi: embed`, so it does not inherit. |
 
 </Tab>
@@ -136,7 +136,7 @@ See [Writing direction](/ios/api-reference/element-structure#writing-direction).
 
 ## Neutral content
 
-In the React Native package, for paragraphs with no strong directional character (digits, punctuation), the direction falls back to the view's resolved layout direction. So `"123 456."` inside a `<View style={{ direction: 'rtl' }}>` right-aligns, and left-aligns otherwise - letting you place an LTR document in an RTL screen (or vice versa) without surprises. In the standalone iOS SDK, the fallback is the SwiftUI `layoutDirection` environment value.
+In the React Native package, for paragraphs with no strong directional character (digits, punctuation), the direction falls back to the view's resolved layout direction. So `"123 456."` inside a `<View style={{ direction: 'rtl' }}>` right-aligns, and left-aligns otherwise - letting you place an LTR document in an RTL screen (or vice versa) without surprises. On web, such a block gets no `dir` and inherits the container's direction. In the standalone iOS SDK, the fallback is the SwiftUI `layoutDirection` environment value.
 
 ## Copy-as-HTML caveat
 
