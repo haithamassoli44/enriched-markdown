@@ -40,23 +40,17 @@ function ParagraphRenderer({
 function HeadingRenderer({
   node,
   styles,
-  parentType,
   capabilities,
   renderChildren,
 }: RendererProps) {
   const Tag = toHeadingLevel(node.attributes?.level ?? '1');
   return (
-    <Tag
-      style={styles[Tag]}
-      dir={parentType === undefined ? capabilities.blockDir : undefined}
-    >
+    <Tag style={styles[Tag]} dir={capabilities.blockDir}>
       {renderChildren(node)}
     </Tag>
   );
 }
 
-// Children inherit: a nested `dir` would hide their text from this element's
-// `dir="auto"` and leave the border on the wrong side.
 function BlockquoteRenderer({
   node,
   styles,
@@ -114,7 +108,8 @@ function AdmonitionRenderer({
         >
           <path d={ADMONITION_ICON_PATHS[type]} />
         </svg>
-        <span dir={capabilities.blockDir}>{ADMONITION_TITLES[type]}</span>
+        {/* The English title must not decide the box's direction. */}
+        <span dir="ltr">{ADMONITION_TITLES[type]}</span>
       </div>
       {renderChildren(node)}
     </div>
@@ -132,7 +127,7 @@ function CodeBlockRenderer({
 
   if (callbacks.onCodeBlockPress == null) {
     return (
-      <pre style={styles.codeBlock} aria-label={label}>
+      <pre style={styles.codeBlock} dir="ltr" aria-label={label}>
         <code style={styles.codeBlockFont}>{renderChildren(node)}</code>
       </pre>
     );
@@ -163,6 +158,7 @@ function CodeBlockRenderer({
   return (
     <pre
       style={{ ...styles.codeBlock, cursor: 'pointer' }}
+      dir="ltr"
       aria-label={label}
       role="button"
       tabIndex={0}

@@ -27,13 +27,30 @@ const doc = [
     ]),
   ]),
   node('CodeBlock', [text('code')]),
+  node('Paragraph', [text('123')]),
 ];
 
-function html(blockDir: RenderCapabilities['blockDir']): string {
+// Reviewer cases: nested quote, table inside a quote, code inside a quote.
+const nestedDoc = [
+  node('Blockquote', [
+    node('Blockquote', [node('Paragraph', [text('مرحبا')])]),
+    node('Table', [
+      node('TableHead', [
+        node('TableRow', [node('TableHeaderCell', [text('cell')])]),
+      ]),
+    ]),
+    node('CodeBlock', [text('code')]),
+  ]),
+];
+
+function html(
+  blockDir: RenderCapabilities['blockDir'],
+  nodes: ASTNode[] = doc
+): string {
   const style = normalizeMarkdownStyle({});
   return renderToStaticMarkup(
     <>
-      {doc.map((child, i) => (
+      {nodes.map((child, i) => (
         <RenderNode
           key={i}
           node={child}
@@ -59,12 +76,21 @@ describe('web renderer direction', () => {
     }
     // Nested blocks inherit, or they would hide their text from the parent's
     // first-strong scan (quote border / list marker on the wrong side).
+    // A paragraph with no letters inherits instead of resolving to LTR.
     expect(out.match(/dir="auto"/g)).toHaveLength(5);
-    expect(out).not.toMatch(/<pre[^>]*dir=/);
+    expect(out).toMatch(/<pre[^>]*dir="ltr"/);
+  });
+
+  it('lets only the outermost block of a nested one resolve', () => {
+    const out = html('auto', nestedDoc);
+    expect(out.match(/dir="auto"/g)).toEqual(['dir="auto"']);
+    expect(out).toMatch(/^<blockquote[^>]*dir="auto"/);
+    // Code is skipped by the quote's scan.
+    expect(out).toMatch(/<pre[^>]*dir="ltr"/);
   });
 
   it('leaves blocks to inherit a forced root direction', () => {
-    expect(html(undefined)).not.toMatch(/dir=/);
+    expect(html(undefined)).not.toMatch(/dir="auto"/);
   });
 
   it('aligns unaligned table cells to the start edge', () => {

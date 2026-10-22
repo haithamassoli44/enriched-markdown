@@ -233,12 +233,15 @@ describe('DomRenderer direction', () => {
       'عربي',
       'new',
       ['unordered-list-item', 'بند'],
+      '123',
     ]);
+    // A line with no letters inherits; Chromium would resolve `auto` to LTR.
     expect([...root.children].map((line) => line.getAttribute('dir'))).toEqual([
       'auto',
       'auto',
       'auto',
       'auto',
+      '',
     ]);
   });
 });
